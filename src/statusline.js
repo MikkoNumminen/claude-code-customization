@@ -142,6 +142,19 @@ function finish() {
   }
   const out = safeRun(data);
   process.stdout.write(out ? out + '\n' : '');
+  /*
+   * The line is written; let go of stdin so the process can end. Without this
+   * it keeps listening for input that will never come, and a session that goes
+   * away without closing the pipe - which is how sessions usually go - leaves
+   * one of these behind for good. They are invisible, and they accumulate.
+   *
+   * Not process.exit(): stdout is a pipe here, and a pending write would be
+   * cut off. With nothing left listening the loop drains and exits by itself.
+   */
+  try {
+    process.stdin.pause();
+    process.stdin.destroy();
+  } catch (_) {}
 }
 
 try {
