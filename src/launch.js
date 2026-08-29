@@ -71,6 +71,15 @@ function saveWidth() {
   } catch (_) {}
 }
 
+/* A bar refreshes its claim every second while it is drawing. */
+function barIsLive(token) {
+  try {
+    return Date.now() - fs.statSync(path.join(STATE_DIR, token + '.claim')).mtimeMs < 6000;
+  } catch (_) {
+    return false;
+  }
+}
+
 /* Blocking poll: this process has nothing else to do until the pane is up. */
 function waitForFile(file, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
@@ -93,14 +102,18 @@ function main() {
     ' args=' + JSON.stringify(ARGS)
   );
   /*
-   * This pane is already part of a ccbar layout - it was created by a launcher
-   * and carries that layout's CCBAR_ID. Splitting again would stack a second
-   * bar on top of the first, which is how a window ends up with a row of them.
-   * Start Claude right here instead: it inherits the same CCBAR_ID, publishes
-   * under it, and the bar already above the pane picks the new session up.
+   * This pane belongs to a ccbar layout AND that layout's bar is still alive
+   * above it - a live bar keeps its claim warm. Splitting again would stack a
+   * second bar on the first, which is how a window ends up with a row of them.
+   * Start Claude right here: it inherits the same CCBAR_ID, publishes under it,
+   * and the bar above picks the new session up.
+   *
+   * The claim check matters as much as CCBAR_ID: when the bar is gone the shell
+   * still carries the id, and trusting the id alone would leave that pane
+   * unable to ever get a bar back.
    */
-  if (process.env.CCBAR_ID) {
-    log('reuse: pane already belongs to layout ' + process.env.CCBAR_ID);
+  if (process.env.CCBAR_ID && barIsLive(process.env.CCBAR_ID)) {
+    log('reuse: live bar holds layout ' + process.env.CCBAR_ID);
     return runPlain(null, 'ccbar: using the bar already above this pane');
   }
 

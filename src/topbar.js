@@ -67,11 +67,13 @@ const ATTACH_FRESH_MS = 20000;    // a session counts as live if seen this recen
 const ATTACH_FALLBACK_MS = 60000; // no new session by then -> settle for an existing one
 const CLAIM_FRESH_MS = 6000;      // a claim older than this is nobody's
 const STALE_EXIT_MS = 120000;     // attached session went quiet this long -> stand down
+const STANDBY_MS = 120000;        // how long to wait for a session restarted in the same pane
 
 let id = explicitId;
 let state = null;
 let shown = null;                 // eased gauge value
 let frames = 0;
+let standbySince = 0;             // set when the session below exits
 const started = Date.now();
 
 /* ---------- session attachment ---------- */
@@ -215,10 +217,28 @@ function draw() {
 /* ---------- lifetime ---------- */
 
 function shouldExit() {
-  if (STOP_FILE) {
+  /*
+   * The session below ended. It is very often restarted straight away in the
+   * same pane - that shell still carries CCBAR_ID, so the new session publishes
+   * under this very token. Tearing the layout down at the first sign of an exit
+   * is what leaves a window with no bar and the console back at the bottom, so
+   * stand by instead and take the session back when it returns.
+   */
+  if (STOP_FILE && !standbySince) {
     try {
-      if (fs.existsSync(STOP_FILE)) return true;
+      if (fs.existsSync(STOP_FILE)) {
+        fs.unlinkSync(STOP_FILE);
+        standbySince = Date.now();
+      }
     } catch (_) {}
+  }
+  if (standbySince) {
+    let alive = false;
+    try {
+      alive = Date.now() - fs.statSync(stateFile()).mtimeMs < 5000;
+    } catch (_) {}
+    if (alive) standbySince = 0; // it came back; carry on as before
+    else return Date.now() - standbySince > STANDBY_MS;
   }
   if (!id) return Date.now() - started > 10 * 60 * 1000; // never found a session
   try {
