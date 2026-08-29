@@ -67,16 +67,17 @@ New-Item -ItemType Directory -Force -Path (Join-Path $prefix 'state') | Out-Null
 
 Copy-Item -Path (Join-Path $source 'src\*') -Destination $prefix -Force
 Copy-Item -Path (Join-Path $source 'bin\cc.cmd') -Destination $binDir -Force
+Copy-Item -Path (Join-Path $source 'bin\ccbar.cmd') -Destination $binDir -Force
 Say ''
 Say "installed to : $prefix"
 
 if ($ShadowClaude) {
   Copy-Item -Path (Join-Path $source 'bin\claude.cmd') -Destination $binDir -Force
-  Say 'shims        : cc, claude'
+  Say 'commands     : cc, claude, ccbar'
 } else {
   $stale = Join-Path $binDir 'claude.cmd'
   if (Test-Path -LiteralPath $stale) { Remove-Item -LiteralPath $stale -Force }
-  Say 'shims        : cc'
+  Say 'commands     : cc, ccbar'
 }
 
 # --- PATH --------------------------------------------------------------------

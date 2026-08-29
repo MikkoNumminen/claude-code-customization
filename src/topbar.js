@@ -8,9 +8,11 @@
  * toward a new reading instead of jumping. Only the numbers come from the
  * session's state file, so the bar keeps breathing while the session is idle.
  *
- * With --auto it attaches to the freshest Claude Code session on the machine
- * and then stays with it. While attached it keeps a .claim file warm, which
- * tells that session's status line to stop drawing its own bar at the bottom.
+ * Given a token it draws exactly that session. Without one it attaches to the
+ * session started in this directory - the pane below is a sibling of this one,
+ * so the directory is the link, never "whichever session is newest". While
+ * attached it keeps a .claim file warm, which tells that session's status line
+ * to stop drawing a second bar at the bottom.
  *
  * Usage: node topbar.js [--auto | <session-id>] [--stop <token>] [--name <fallback>]
  */
@@ -20,7 +22,7 @@ const os = require('os');
 const path = require('path');
 
 const theme = require('./theme.js');
-const { etaText } = require('./payload.js');
+const { etaText, chooseSession } = require('./payload.js');
 
 /* ---------- arguments ---------- */
 
@@ -63,6 +65,7 @@ const READ_EVERY = 10;            // re-read state twice a second
 const HOUSEKEEP_EVERY = 20;       // claim, attach and exit checks once a second
 const ATTACH_FRESH_MS = 20000;    // a session counts as live if seen this recently
 const ATTACH_FALLBACK_MS = 60000; // no new session by then -> settle for an existing one
+const CLAIM_FRESH_MS = 6000;      // a claim older than this is nobody's
 const STALE_EXIT_MS = 120000;     // attached session went quiet this long -> stand down
 
 let id = explicitId;
@@ -89,15 +92,22 @@ const PREEXISTING = (() => {
   return seen;
 })();
 
+/* Someone else's bar is already drawing that session. */
+function heldByAnother(key) {
+  try {
+    return Date.now() - fs.statSync(path.join(STATE_DIR, key + '.claim')).mtimeMs < CLAIM_FRESH_MS;
+  } catch (_) {
+    return false;
+  }
+}
+
 function attach() {
   if (id) return;
-  const allowOld = attachMode === 'any' || Date.now() - started > ATTACH_FALLBACK_MS;
-  let best = null;
+  const candidates = [];
   try {
     for (const f of fs.readdirSync(STATE_DIR)) {
-      if (!f.endsWith('.json')) continue;
+      if (!f.endsWith('.json') || f === 'term.json') continue;
       const key = f.slice(0, -5);
-      if (!allowOld && PREEXISTING.has(key)) continue;
       let mtime;
       try {
         mtime = fs.statSync(path.join(STATE_DIR, f)).mtimeMs;
@@ -105,12 +115,27 @@ function attach() {
         continue;
       }
       if (Date.now() - mtime > ATTACH_FRESH_MS) continue;
-      if (!best || mtime > best.mtime) best = { id: key, mtime: mtime };
+      let cwd = '';
+      try {
+        cwd = (JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), 'utf8')) || {}).cwd || '';
+      } catch (_) {}
+      candidates.push({ key: key, mtime: mtime, cwd: cwd, claimedByOther: heldByAnother(key) });
     }
   } catch (_) {
     /* no state directory yet */
   }
-  if (best) id = best.id;
+
+  let here = '';
+  try {
+    here = process.cwd();
+  } catch (_) {}
+
+  const picked = chooseSession(candidates, {
+    cwd: here,
+    allowOld: attachMode === 'any' || Date.now() - started > ATTACH_FALLBACK_MS,
+    preexisting: Array.from(PREEXISTING),
+  });
+  if (picked) id = picked;
 }
 
 function stateFile() {

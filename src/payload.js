@@ -99,4 +99,40 @@ function withEta(info) {
   return Object.assign({}, info, { eta: etaText(info.resets) });
 }
 
-module.exports = { projectName, limitInfo, etaText, withEta };
+/* ---------- which session does a bar belong to ---------- */
+
+function normDir(p) {
+  if (typeof p !== 'string' || !p) return '';
+  return p.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
+}
+
+/*
+ * Picks the session a bar should draw.
+ *
+ * A bar sits in the same window as its session and was started in the same
+ * directory, so the directory is the link - not "the freshest session on the
+ * machine", which in a second window picks up a stranger, leaves the real
+ * session unclaimed (its status line then draws a second bar at the bottom)
+ * and reports the wrong numbers up top.
+ *
+ * candidates: [{ key, mtime, cwd, claimedByOther }]
+ */
+function chooseSession(candidates, opts) {
+  const o = opts || {};
+  const here = normDir(o.cwd);
+  const free = (candidates || []).filter((c) => c && !c.claimedByOther);
+
+  /* a session started in this directory is ours, however old it is */
+  const mine = here ? free.filter((c) => normDir(c.cwd) === here) : [];
+
+  /* otherwise only sessions that appeared after this bar did, unless told
+     to settle for any */
+  const rest = free.filter((c) => o.allowOld || !(o.preexisting || []).includes(c.key));
+
+  const pool = mine.length ? mine : rest;
+  let best = null;
+  for (const c of pool) if (!best || c.mtime > best.mtime) best = c;
+  return best ? best.key : null;
+}
+
+module.exports = { projectName, limitInfo, etaText, withEta, chooseSession, normDir };
