@@ -241,7 +241,17 @@ function frame() {
   const line1 = theme.center(theme.titleLine(name, t, { max: budget }), cols);
   const line2 = theme.center(theme.meterLine(info, t, { width: gauge, max: budget }), cols);
 
-  return '\x1b[H' + line1 + '\x1b[K\n' + line2 + '\x1b[K';
+  /*
+   * Home, the two rows, then erase everything from here to the end of the
+   * pane. That last part is not tidiness: Windows Terminal scales panes with
+   * the window, so a pane that started two rows tall becomes six when the
+   * window is made taller, and it reflows the buffer on every resize. Rows the
+   * composition does not reach then keep whatever the reflow left there -
+   * fragments of an older, wider gauge, which is exactly what they looked
+   * like. Erasing below the composition every frame means there is nothing
+   * left to see, whatever height the pane has been given.
+   */
+  return '\x1b[H' + line1 + '\x1b[K\n' + line2 + '\x1b[J';
 }
 
 function draw() {
@@ -338,6 +348,11 @@ try {
 } catch (_) {}
 process.stdout.on('resize', () => {
   publishWidth();
+  /* the reflow that comes with a resize can leave anything anywhere in the
+     pane, so this one starts from an empty one rather than drawing over it */
+  try {
+    process.stdout.write('\x1b[2J');
+  } catch (_) {}
   draw();
 });
 

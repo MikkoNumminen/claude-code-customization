@@ -207,6 +207,24 @@ And autowrap is turned off in the pane for as long as the bar owns it: a row tha
 still comes out too long is then clipped at the right edge instead of wrapping, so the worst
 a wrong reading can do is look cropped for one frame.
 
+### The height it is given
+
+At the start the bar takes the least it can. Reserving three rows produces a two-row pane —
+Windows Terminal spends one on the border — which is exactly the composition; reserving two
+produces a single row, which is not enough for it. Both measured, not guessed.
+
+After that the height is not ccbar's to decide. Windows Terminal scales panes with the
+window, so making a window twice as tall makes the bar's pane twice as tall with it, and
+there is no resize verb in the `wt` command line to put it back: `resize-pane` does nothing,
+in a split window as much as anywhere else. `alt+shift+up` in the bar's own pane does it by
+hand, and a fresh `cc` starts from two rows again.
+
+What ccbar can do is make sure those extra rows are empty. Every frame erases from the end of
+the composition to the end of the pane, because a resize also makes Windows Terminal reflow
+the buffer, and rows the composition does not reach otherwise keep whatever the reflow left
+there — fragments of an older, wider gauge, appearing and disappearing as the window is
+dragged.
+
 ### Built to survive Claude Code updates
 
 Only the documented `statusLine` command contract is used: JSON on stdin, text on stdout.
