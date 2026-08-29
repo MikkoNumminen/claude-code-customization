@@ -122,7 +122,10 @@ cc.cmd ──> launch.js ──> split.ps1 ──> wt split-pane ──> run-cla
   It runs without `-NoExit`: the pane exists for one session and closes with it.
 - **statusline.js** is Claude Code's status-line command. It publishes the session's name and
   limit under that token, and stays silent while a bar holds a fresh `.claim` beside it, so
-  the console lives in exactly one place. With no bar attached it draws the console itself.
+  the console lives in exactly one place. With no bar attached it draws the console itself,
+  centred against a width the launcher and the bar record under that same token — never one
+  file shared by the machine, or two windows of different widths take turns overwriting each
+  other's reading and one of them ends up centred against a terminal that is not its own.
 - **topbar.js** watches exactly its own token. Started by hand with no token it takes the
   session published from *its own directory* and skips sessions another bar already claims —
   never "the freshest session on the machine", which in a second window adopts a stranger,

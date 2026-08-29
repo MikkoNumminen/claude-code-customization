@@ -72,15 +72,22 @@ function claimed(key) {
  * A status-line command is spawned without a console: stdout is a pipe, no
  * COLUMNS is exported, and the payload carries no size. So the width is taken
  * from whoever could actually see it - the top pane, or the shell that
- * launched the session - through a cached reading. When nothing is known we
- * return null and the console is drawn flush left, because a guessed centre
- * looks broken while a left edge looks deliberate.
+ * launched the session - through a reading cached under this session's own
+ * token.
+ *
+ * Only its own: the reading used to live in one file per machine, so every
+ * window overwrote the last one's width and a session with no bar centred its
+ * console against whatever terminal happened to write last. A width that
+ * belongs to another window is not a better guess than none.
+ *
+ * When nothing is known we return null and the console is drawn flush left,
+ * because a guessed centre looks broken while a left edge looks deliberate.
  */
-function terminalWidth() {
+function terminalWidth(key) {
   const direct = process.stdout.columns || parseInt(process.env.COLUMNS || '', 10);
   if (Number.isFinite(direct) && direct > 20) return direct;
   try {
-    const t = JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'term.json'), 'utf8'));
+    const t = JSON.parse(fs.readFileSync(path.join(STATE_DIR, key + '.width'), 'utf8'));
     if (t && Number.isFinite(t.cols) && t.cols > 20) return t.cols;
   } catch (_) {}
   return null;
@@ -98,7 +105,7 @@ function run(data) {
 
   const theme = require('./theme.js');
   const t = Date.now() / 1000; // continuous time, sampled at the host's redraw rate
-  const cols = terminalWidth();
+  const cols = terminalWidth(key);
   const budget = cols ? cols - 1 : 0;
   const gauge = budget ? Math.max(8, Math.min(46, budget - 24)) : 20;
 

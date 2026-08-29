@@ -71,13 +71,20 @@ function blocker() {
   return null;
 }
 
-/* The status line is spawned without a console and cannot measure the
-   terminal, so record the width here, where it is actually visible. */
-function saveWidth() {
+/*
+ * The status line is spawned without a console and cannot measure the
+ * terminal, so record the width here, where it is actually visible.
+ *
+ * Under this session's own token, never in one file shared by the machine: a
+ * width belongs to a window, and two windows of different widths would take
+ * turns overwriting each other's reading, leaving whichever session draws its
+ * own console centred against a stranger's terminal.
+ */
+function saveWidth(token) {
   try {
     fs.mkdirSync(STATE_DIR, { recursive: true });
     fs.writeFileSync(
-      path.join(STATE_DIR, 'term.json'),
+      path.join(STATE_DIR, token + '.width'),
       JSON.stringify({ cols: process.stdout.columns, rows: process.stdout.rows, ts: Date.now() })
     );
   } catch (_) {}
@@ -139,12 +146,12 @@ function main() {
     return runPlain(stop);
   }
 
-  saveWidth();
-
   const rows = process.stdout.rows;
   const cwd = process.cwd();
   const token = crypto.randomBytes(16).toString('hex');
   const size = (Math.round((1 - 3 / rows) * 1000) / 1000).toFixed(3); // reserve 3 rows on top
+
+  saveWidth(token); // the session is named first, so the reading can be filed under it
 
   /* '0' is this window; an explicit name can be forced for testing */
   const win = process.env.CCBAR_WT_WINDOW || '0';

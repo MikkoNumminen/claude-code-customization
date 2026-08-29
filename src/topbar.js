@@ -112,6 +112,8 @@ function attach() {
   const candidates = [];
   try {
     for (const f of fs.readdirSync(STATE_DIR)) {
+      /* term.json is not a session: nothing writes it any more, but an older
+         install may have left one lying in the state directory */
       if (!f.endsWith('.json') || f === 'term.json') continue;
       const key = f.slice(0, -5);
       let mtime;
@@ -169,16 +171,22 @@ function claim() {
 
 /*
  * This pane is one of the few processes that can actually see the terminal,
- * so it records the width for status lines, which are spawned without a
+ * so it records the width for the status line, which is spawned without a
  * console and would otherwise have nothing to centre against.
+ *
+ * Filed under the session this bar is drawing, because that session's status
+ * line is the only one entitled to this reading. A single shared file made
+ * every window on the machine overwrite the last one's width, and a session
+ * that drew its own console then centred it against a stranger's terminal.
  */
 function publishWidth() {
+  if (!id) return; // not attached yet: no session to record it for
   const cols = process.stdout.columns;
   if (!Number.isFinite(cols) || cols <= 20) return;
   try {
     fs.mkdirSync(STATE_DIR, { recursive: true });
     fs.writeFileSync(
-      path.join(STATE_DIR, 'term.json'),
+      path.join(STATE_DIR, id + '.width'),
       JSON.stringify({ cols: cols, rows: process.stdout.rows || null, ts: Date.now() })
     );
   } catch (_) {}
@@ -271,7 +279,7 @@ function cleanup() {
     process.stdout.write('\x1b[?25h' + theme.RESET + '\x1b[2J\x1b[H');
   } catch (_) {}
   const junk = [];
-  if (id) junk.push(path.join(STATE_DIR, id + '.claim'));
+  if (id) junk.push(path.join(STATE_DIR, id + '.claim'), path.join(STATE_DIR, id + '.width'));
   if (STOP_FILE) junk.push(STOP_FILE, path.join(STATE_DIR, stopToken + '.started'));
   for (const f of junk) {
     try {
