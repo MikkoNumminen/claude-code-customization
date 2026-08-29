@@ -137,9 +137,26 @@ const BREATH_PERIOD = 6.5; // phosphor idle
  * The word sits still with fixed one-space tracking. All movement is light:
  * a drifting gradient, a highlight gliding at sub-character precision, and a
  * slow breath in brightness.
+ *
+ * opts.max is a hard budget in columns. A line that overflows would wrap, and
+ * a wrapped line shoves the whole three-row composition out of shape, so the
+ * word gives up its tracking first and only then its tail.
  */
-function titleLine(name, t) {
-  const chars = Array.from(String(name || 'claude').toUpperCase());
+const FRAME_COST = 4; // '⟨ ' and ' ⟩'
+
+function titleLine(name, t, opts) {
+  const max = (opts && opts.max) || Infinity;
+  let chars = Array.from(String(name || 'claude').toUpperCase());
+  let tracking = ' ';
+
+  const spans = (count, gap) => FRAME_COST + count + Math.max(0, count - 1) * gap;
+  if (spans(chars.length, 1) > max) tracking = '';
+  if (spans(chars.length, tracking.length) > max) {
+    const room = Math.max(1, max - FRAME_COST - 1);
+    chars = chars.slice(0, room);
+    chars.push('…');
+  }
+
   const n = chars.length;
   if (n === 0) return '';
 
@@ -156,7 +173,7 @@ function titleLine(name, t) {
     return scale(rgb, breath);
   };
 
-  const lit = chars.map((ch, i) => paint(colorAt(i), ch)).join(' ');
+  const lit = chars.map((ch, i) => paint(colorAt(i), ch)).join(tracking);
   const left = mix(colorAt(-1.6), SLATE, 0.3);
   const right = mix(colorAt(n + 0.6), SLATE, 0.3);
 
@@ -168,17 +185,41 @@ function titleLine(name, t) {
 /* Eighth-width blocks: the fill glides instead of stepping cell to cell. */
 const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
 
+/*
+ * opts.width is the gauge the caller would like; opts.max is the hard budget
+ * for the whole line. A gauge that overflows the terminal wraps, and a wrapped
+ * line destroys the composition, so the line is fitted in order of what can be
+ * spared: the gauge narrows, then the countdown goes, then the label, and the
+ * gauge narrows again. The reading itself is never dropped.
+ */
 function meterLine(info, t, opts) {
-  const width = (opts && opts.width) || 22;
+  const o = opts || {};
+  const max = o.max && o.max > 8 ? o.max : Infinity;
+  const label = (info && info.label) || 'SESSION';
+  const etaText = info && info.eta ? 'T-' + info.eta : '';
+
+  let width = o.width || 22;
+  let showLabel = true;
+  let showEta = etaText.length > 0;
+
+  /* label + ' ' + '⟨' + gauge + '⟩' + ' ' + '100%' + '  ' + countdown */
+  const lineWidth = () =>
+    (showLabel ? label.length + 1 : 0) + 1 + width + 1 + 1 + 4 + (showEta ? 2 + etaText.length : 0);
+  const shrinkTo = (floor) => {
+    while (lineWidth() > max && width > floor) width--;
+  };
+
+  shrinkTo(8);
+  if (lineWidth() > max && showEta) { showEta = false; shrinkTo(8); }
+  if (lineWidth() > max && showLabel) { showLabel = false; shrinkTo(4); }
+
   const frame = mix(STEEL, SLATE, 0.4);
   const openB = paint(frame, '⟨');
   const closeB = paint(frame, '⟩');
+  const head = showLabel ? paint(STEEL, label) + ' ' : '';
 
   if (!info) {
-    return (
-      paint(SLATE, 'SESSION') + ' ' + openB + paint(SLATE, '·'.repeat(width)) + closeB +
-      ' ' + paint(SLATE, '--%')
-    );
+    return head + openB + paint(SLATE, '·'.repeat(width)) + closeB + ' ' + paint(SLATE, '--%');
   }
 
   const remaining = Math.max(0, Math.min(100, 100 - info.used));
@@ -215,9 +256,9 @@ function meterLine(info, t, opts) {
 
   const hot = mix(base, WHITE, pulse * 0.8);
   const pct = paint(hot, BOLD + String(Math.round(remaining)).padStart(3, ' ') + '%' + RESET);
-  const eta = info.eta ? '  ' + paint(mix(STEEL, base, 0.25), 'T-' + info.eta) : '';
+  const eta = showEta ? '  ' + paint(mix(STEEL, base, 0.25), etaText) : '';
 
-  return paint(STEEL, info.label || 'SESSION') + ' ' + openB + bar + closeB + ' ' + pct + eta;
+  return head + openB + bar + closeB + ' ' + pct + eta;
 }
 
 /* ---------- layout ---------- */

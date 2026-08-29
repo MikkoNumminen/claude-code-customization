@@ -99,9 +99,13 @@ function run(data) {
   const theme = require('./theme.js');
   const t = Date.now() / 1000; // continuous time, sampled at the host's redraw rate
   const cols = terminalWidth();
-  const gauge = cols ? Math.max(10, Math.min(46, cols - 24)) : 20;
+  const budget = cols ? cols - 1 : 0;
+  const gauge = budget ? Math.max(8, Math.min(46, budget - 24)) : 20;
 
-  const lines = [theme.titleLine(name, t), theme.meterLine(info, t, { width: gauge })];
+  const lines = [
+    theme.titleLine(name, t, budget ? { max: budget } : undefined),
+    theme.meterLine(info, t, budget ? { width: gauge, max: budget } : { width: gauge }),
+  ];
   return (cols ? lines.map((l) => theme.center(l, cols)) : lines).join('\n');
 }
 

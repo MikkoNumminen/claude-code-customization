@@ -167,10 +167,16 @@ function frame() {
     info = { used: shown, label: state.label || 'SESSION', eta: etaText(state.resets) };
   }
 
-  /* the title card sits centred, the gauge centred beneath it */
-  const width = Math.max(10, Math.min(46, cols - 24));
-  const line1 = theme.center(theme.titleLine(name, t), cols);
-  const line2 = theme.center(theme.meterLine(info, t, { width: width }), cols);
+  /*
+   * The title card sits centred, the gauge centred beneath it. Both are given
+   * a hard column budget: a line one character too long wraps, and a wrapped
+   * line pushes the whole composition down and out of the three-row pane.
+   * One column is left spare, because writing into the last cell wraps too.
+   */
+  const budget = Math.max(12, cols - 2);
+  const gauge = Math.max(8, Math.min(46, budget - 24));
+  const line1 = theme.center(theme.titleLine(name, t, { max: budget }), cols);
+  const line2 = theme.center(theme.meterLine(info, t, { width: gauge, max: budget }), cols);
 
   return '\x1b[H' + line1 + '\x1b[K\n' + line2 + '\x1b[K';
 }
