@@ -116,9 +116,10 @@ cc.cmd ──> launch.js ──> split.ps1 ──> wt split-pane ──> run-cla
 - **split.ps1** exists because `wt.exe` is a Windows App Execution Alias, and Node cannot
   launch it: from `node.exe` the stub returns exit 0 and does nothing at all — even
   `wt.exe --version` prints nothing. PowerShell resolves the alias correctly.
-- **run-claude.ps1** names the session with `CCBAR_ID=<token>` and drops a `.started` marker.
-  `wt.exe`'s own exit code cannot be trusted for that handshake: it hands the command to the
-  running window and may report failure for a split that worked.
+- **run-claude.ps1** names the session with `CCBAR_ID=<token>` and drops a `.started` marker
+  carrying its own pid. `wt.exe`'s own exit code cannot be trusted for that handshake: it
+  hands the command to the running window and may report failure for a split that worked.
+  It runs without `-NoExit`: the pane exists for one session and closes with it.
 - **statusline.js** is Claude Code's status-line command. It publishes the session's name and
   limit under that token, and stays silent while a bar holds a fresh `.claim` beside it, so
   the console lives in exactly one place. With no bar attached it draws the console itself.
@@ -128,16 +129,28 @@ cc.cmd ──> launch.js ──> split.ps1 ──> wt split-pane ──> run-cla
   leaves the real session unclaimed (so it draws a second bar at the bottom) and shows the
   wrong numbers up top.
 
-Two states are easy to get wrong, so they are handled explicitly:
+### The bar lives exactly as long as its session
 
-- **A session that ends and comes straight back.** The shell in that pane still carries
-  `CCBAR_ID`, so the restarted session publishes under the same token. The bar does not quit
-  when the session exits — it stands by for two minutes and takes the session back when it
-  returns. Quitting immediately is what leaves a window with no bar and the console back at
-  the bottom.
-- **A pane whose bar is gone.** `CCBAR_ID` lingers in that shell, so the launcher checks for a
-  live claim as well before deciding to reuse a bar. Without that check the pane could never
-  get a bar back.
+A gauge left hovering over a finished session is furniture, so every way a session can end
+has to reach the bar:
+
+- **Claude exits.** `run-claude.ps1` leaves a `.stop` marker and then ends, which closes the
+  pane it ran in. The bar sees the marker within 200ms and stands down. The window is a single
+  full-height terminal again — the very shell you typed `cc` in, with its own history, at the
+  prompt where you left it. Nothing has to be tidied up by hand.
+- **The pane is closed or killed.** Then nothing gets to write a marker, so the bar also
+  watches the pid that pane recorded in `.started`, and leaves when it is gone.
+- **A session that borrowed the bar.** A pane whose shell still carries `CCBAR_ID` under a
+  live bar runs Claude in place rather than stacking a second bar on the first — and that
+  session leaves the `.stop` marker itself, because the runner that normally leaves it belongs
+  to the session that opened the pane and finished long ago.
+
+`CCBAR_ID` in a shell is not on its own proof of a bar: the launcher checks for a live claim
+as well before reusing one, or a pane whose bar had gone could never get one back.
+
+A session that dies in its first ten seconds is the one exception to the pane closing: that
+is a startup failure, and a pane that vanishes takes the reason with it, so it is held open
+until the message has been read.
 
 ### Every row fits the window
 

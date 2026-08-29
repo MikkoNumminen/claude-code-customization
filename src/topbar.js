@@ -8,6 +8,11 @@
  * toward a new reading instead of jumping. Only the numbers come from the
  * session's state file, so the bar keeps breathing while the session is idle.
  *
+ * The bar lives exactly as long as the session it draws: the pane below writes
+ * a marker on its way out (and its pid on the way in, for the exits too abrupt
+ * to write anything), and the bar stands down on either. A gauge left hovering
+ * over a finished session is just furniture.
+ *
  * Given a token it draws exactly that session. Without one it attaches to the
  * session started in this directory - the pane below is a sibling of this one,
  * so the directory is the link, never "whichever session is newest". While
@@ -67,13 +72,12 @@ const ATTACH_FRESH_MS = 20000;    // a session counts as live if seen this recen
 const ATTACH_FALLBACK_MS = 60000; // no new session by then -> settle for an existing one
 const CLAIM_FRESH_MS = 6000;      // a claim older than this is nobody's
 const STALE_EXIT_MS = 120000;     // attached session went quiet this long -> stand down
-const STANDBY_MS = 120000;        // how long to wait for a session restarted in the same pane
+const EXIT_CHECK_EVERY = 4;       // the session ending is noticed within ~200ms
 
 let id = explicitId;
 let state = null;
 let shown = null;                 // eased gauge value
 let frames = 0;
-let standbySince = 0;             // set when the session below exits
 const started = Date.now();
 
 /* ---------- session attachment ---------- */
@@ -216,30 +220,44 @@ function draw() {
 
 /* ---------- lifetime ---------- */
 
+/*
+ * The pane below wrote its shell's pid when it came up. Watching it covers the
+ * endings that never get to write a marker - the pane closed from its own X,
+ * the session killed outright - which would otherwise leave the bar drawing a
+ * session that is already gone until the stale timeout finally ran out.
+ */
+function paneGone() {
+  if (!stopToken) return false;
+  let pid;
+  try {
+    pid = parseInt(fs.readFileSync(path.join(STATE_DIR, stopToken + '.started'), 'utf8'), 10);
+  } catch (_) {
+    return false; // no marker to read: nothing is being claimed either way
+  }
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0); // signal 0 only asks whether it is still there
+    return false;
+  } catch (e) {
+    /* only a plain "no such process" is proof. Anything else - no permission,
+       some oddity of the platform - is no grounds for tearing the bar down. */
+    return e.code === 'ESRCH';
+  }
+}
+
 function shouldExit() {
   /*
-   * The session below ended. It is very often restarted straight away in the
-   * same pane - that shell still carries CCBAR_ID, so the new session publishes
-   * under this very token. Tearing the layout down at the first sign of an exit
-   * is what leaves a window with no bar and the console back at the bottom, so
-   * stand by instead and take the session back when it returns.
+   * The session below is over: it left the marker on its way out, and the pane
+   * it ran in has closed itself. The bar goes with it. Lingering here - in the
+   * hope of a session restarted in the same pane - is what used to leave a dead
+   * gauge pinned above a plain prompt for minutes after the session had ended.
    */
-  if (STOP_FILE && !standbySince) {
+  if (STOP_FILE) {
     try {
-      if (fs.existsSync(STOP_FILE)) {
-        fs.unlinkSync(STOP_FILE);
-        standbySince = Date.now();
-      }
+      if (fs.existsSync(STOP_FILE)) return true;
     } catch (_) {}
   }
-  if (standbySince) {
-    let alive = false;
-    try {
-      alive = Date.now() - fs.statSync(stateFile()).mtimeMs < 5000;
-    } catch (_) {}
-    if (alive) standbySince = 0; // it came back; carry on as before
-    else return Date.now() - standbySince > STANDBY_MS;
-  }
+  if (paneGone()) return true;
   if (!id) return Date.now() - started > 10 * 60 * 1000; // never found a session
   try {
     return Date.now() - fs.statSync(stateFile()).mtimeMs > STALE_EXIT_MS;
@@ -250,7 +268,7 @@ function shouldExit() {
 
 function cleanup() {
   try {
-    process.stdout.write('\x1b[?25h' + theme.RESET + '\n');
+    process.stdout.write('\x1b[?25h' + theme.RESET + '\x1b[2J\x1b[H');
   } catch (_) {}
   const junk = [];
   if (id) junk.push(path.join(STATE_DIR, id + '.claim'));
@@ -296,10 +314,12 @@ setInterval(() => {
     if (auto) attach();
     claim();
     publishWidth();
-    if (shouldExit()) {
-      cleanup();
-      process.exit(0);
-    }
+  }
+  /* far more often than the rest: the whole point of the bar is that it leaves
+     with its session, and a second of afterlife is a second too many */
+  if (frames % EXIT_CHECK_EVERY === 0 && shouldExit()) {
+    cleanup();
+    process.exit(0);
   }
   draw();
 }, FRAME_MS);

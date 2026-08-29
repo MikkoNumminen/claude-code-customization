@@ -42,10 +42,22 @@ function log(text) {
 const NON_INTERACTIVE =
   /^(-p|--print|--version|-v|--help|-h|mcp|setup-token|install|update|doctor|config|plugin|agents)$/;
 
-function runPlain(note, plainNote) {
+function runPlain(note, plainNote, stopId) {
   const line = plainNote || (note ? 'ccbar: top bar off - ' + note : '');
   if (line) process.stderr.write('\x1b[90m' + line + '\x1b[0m\n');
   const r = spawnSync('claude.exe', ARGS, { stdio: 'inherit' });
+  /*
+   * Only when this session borrowed a bar somebody else started: the runner
+   * that would normally leave the marker finished long ago, so nothing else is
+   * going to tell that bar its session is over, and it would sit there drawing
+   * a gauge for something that has ended.
+   */
+  if (stopId) {
+    try {
+      fs.mkdirSync(STATE_DIR, { recursive: true });
+      fs.writeFileSync(path.join(STATE_DIR, stopId + '.stop'), '');
+    } catch (_) {}
+  }
   process.exit(typeof r.status === 'number' ? r.status : 0);
 }
 
@@ -111,10 +123,14 @@ function main() {
    * The claim check matters as much as CCBAR_ID: when the bar is gone the shell
    * still carries the id, and trusting the id alone would leave that pane
    * unable to ever get a bar back.
+   *
+   * The id is handed on so this session marks itself finished on the way out.
+   * Nothing else can: the runner that leaves that marker belongs to the session
+   * that opened this pane, and it is already done.
    */
   if (process.env.CCBAR_ID && barIsLive(process.env.CCBAR_ID)) {
     log('reuse: live bar holds layout ' + process.env.CCBAR_ID);
-    return runPlain(null, 'ccbar: using the bar already above this pane');
+    return runPlain(null, 'ccbar: using the bar already above this pane', process.env.CCBAR_ID);
   }
 
   const stop = blocker();
@@ -167,7 +183,12 @@ function main() {
   }
   log('pane up, handing over to the bar');
 
-  /* this pane is now the bar; it runs until the session below signals it is done */
+  /*
+   * This pane is now the bar, and it draws for exactly as long as the session
+   * below lives. When that session ends, the pane it ran in closes itself, the
+   * bar stands down, and this pane - the one the user typed `cc` in - is the
+   * whole window again, back at its own prompt with its own history.
+   */
   const bar = spawnSync(
     process.execPath,
     [path.join(CCBAR, 'topbar.js'), '--auto', '--stop', token, '--name', path.basename(cwd)],

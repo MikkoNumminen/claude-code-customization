@@ -6,6 +6,10 @@
   (even `wt.exe --version` prints nothing, and the alias path itself reads as
   ENOENT). PowerShell resolves the alias correctly, so the launcher delegates
   the one wt call here and keeps the rest in Node.
+
+  The runner is started without -NoExit on purpose: the pane is there for one
+  session, so when the runner returns the shell ends, the pane closes, and the
+  window is a single full-height terminal again.
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Window,
@@ -18,7 +22,7 @@ param(
 
 $wtArgs = @(
   '-w', $Window, 'split-pane', '--horizontal', '--size', $Size, '-d', $Dir,
-  'powershell.exe', '-NoLogo', '-ExecutionPolicy', 'Bypass', '-NoExit',
+  'powershell.exe', '-NoLogo', '-ExecutionPolicy', 'Bypass',
   '-File', $Runner, '-Token', $Token, '-Dir', $Dir
 )
 if ($Rest -and $Rest.Count -gt 0) { $wtArgs += '-Rest'; $wtArgs += $Rest }
