@@ -17,7 +17,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const STATE_DIR = path.join(os.homedir(), '.claude', 'ccbar', 'state');
+/* CCBAR_STATE is for the test suite, so it can never disturb a live session */
+const STATE_DIR = process.env.CCBAR_STATE || path.join(os.homedir(), '.claude', 'ccbar', 'state');
 const CLAIM_FRESH_MS = 6000; // a pane must have touched its claim this recently
 
 function sessionKey(data) {

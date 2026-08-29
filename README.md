@@ -155,6 +155,36 @@ A session that dies in its first ten seconds is the one exception to the pane cl
 is a startup failure, and a pane that vanishes takes the reason with it, so it is held open
 until the message has been read.
 
+Not every ending gets to tidy up — a window closed from its X takes its bar down with no
+chance to run — so the launcher sweeps the state directory when it starts a session. A token
+whose files were written in the last half hour, or whose pane is still running, is left alone;
+anything else belonged to a session that is over. Without it the directory only grows, which
+is how one reached fifty files.
+
+## Tests
+
+```
+node test/run.js
+```
+
+No dependencies and nothing to install. Every suite runs against `src/` in a state directory
+of its own, handed over through `CCBAR_STATE`, so a run cannot disturb a session you have
+open. Covered: the composition fits every width from 24 to 200 columns; the bar leaves with
+its session and takes its files with it; the status line always ends, even when nobody closes
+its stdin; two windows never read each other's width; the sweep clears finished sessions and
+nothing else.
+
+What that cannot cover is the window itself. For the pane really closing, the layout really
+collapsing, and the bar really following a pane that is resized under it, there is an
+end-to-end run — by hand, from inside a Windows Terminal window:
+
+```
+powershell -ExecutionPolicy Bypass -File .\test\e2e.ps1
+```
+
+It splits the window you run it in, stands in for Claude with a sleep, and reports. Nothing
+real is involved and it takes about twenty seconds.
+
 ### Every row fits the window
 
 A line one column too long wraps, and a wrapped line pushes the three-row composition out of
@@ -162,6 +192,20 @@ shape — which is what a narrow window used to do. Both rows now take a hard co
 give things up in order rather than overflowing: the gauge narrows, then the countdown goes,
 then the `SESSION` label, and the title drops its letter-spacing before truncating with an
 ellipsis. The reading itself is never dropped. Checked from 24 to 200 columns.
+
+The budget is only as good as the width behind it, and that width is not simply available.
+**Node never reports a resize in a Windows Terminal pane.** Splitting a 120-column window
+leaves `process.stdout.columns` still answering 120 for a pane that is now 58 wide, with no
+`resize` event at all — so every row goes on being composed for a terminal that no longer
+exists: too long for a window that has been narrowed, which wraps and scrolls the whole
+composition off the top, and too short for one that has been widened, which leaves it sitting
+left of centre. Both were reported from the same install, an hour apart, and they are the
+same bug.
+
+So the bar asks the console itself, every frame, rather than trusting the cached reading.
+And autowrap is turned off in the pane for as long as the bar owns it: a row that somehow
+still comes out too long is then clipped at the right edge instead of wrapping, so the worst
+a wrong reading can do is look cropped for one frame.
 
 ### Built to survive Claude Code updates
 
