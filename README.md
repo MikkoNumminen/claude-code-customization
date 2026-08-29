@@ -3,9 +3,11 @@
 A sci-fi console bar for [Claude Code](https://claude.com/claude-code): your project name
 animated at the **top** of the Windows Terminal window, with a session-limit gauge under it.
 
+![The ccbar top pane: the project name in a drifting cool gradient above a session-limit gauge reading 74 percent with a countdown](docs/topbar.png)
+
 ```
-⟨ K O O D I A ⟩
-SESSION ⟨████████████▋░░░░░░░⟩  58%  T-2h02m
+⟨ K O O D I A ⟩                      <- the bar, three rows at the top
+SESSION ⟨████████████▋░░░░░░░⟩  74%  T-4h13m
 ─────────────────────────────────────────────
   Claude Code runs in the pane below
 ```
