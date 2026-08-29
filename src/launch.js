@@ -24,7 +24,8 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const CCBAR = path.join(os.homedir(), '.claude', 'ccbar');
-const STATE_DIR = path.join(CCBAR, 'state');
+/* CCBAR_STATE is for the test suite, so it can never disturb a live session */
+const STATE_DIR = process.env.CCBAR_STATE || path.join(CCBAR, 'state');
 const ARGS = process.argv.slice(2);
 
 /* A short trail, so a bar that refuses to appear can be diagnosed after the
@@ -99,6 +100,80 @@ function barIsLive(token) {
   }
 }
 
+/* The pane that session ran in, if it is still there. */
+function paneAlive(token) {
+  let pid;
+  try {
+    pid = parseInt(fs.readFileSync(path.join(STATE_DIR, token + '.started'), 'utf8'), 10);
+  } catch (_) {
+    return false;
+  }
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code !== 'ESRCH'; // alive but out of reach still counts as alive
+  }
+}
+
+const SWEEP_AFTER_MS = 30 * 60 * 1000; // quiet this long and the session is over
+const OURS = /^([A-Za-z0-9._-]{4,80})\.(json|claim|started|stop|width|tmp)$/;
+
+/*
+ * Files outlive the sessions that wrote them whenever one never got to clean up
+ * after itself - a window closed from its X takes its bar down with no chance
+ * to run, leaving the claim, the width and the markers behind. Each one is
+ * harmless on its own, and they accumulate: this directory had reached fifty.
+ *
+ * Nothing is touched while it could still belong to somebody. A token whose
+ * files were written recently, or whose pane is still running, is left exactly
+ * where it is - a live session's bar refreshes its claim every second, so it is
+ * never a candidate. Anything not shaped like ours (launch.log) is not ours to
+ * delete either.
+ *
+ * The launcher is the place for this: starting a session is when a finished one
+ * is worth noticing, and it happens once rather than on a timer.
+ */
+function sweepState() {
+  let files;
+  try {
+    files = fs.readdirSync(STATE_DIR);
+  } catch (_) {
+    return; // no state directory yet: nothing to sweep
+  }
+
+  const sessions = new Map();
+  for (const f of files) {
+    const m = OURS.exec(f);
+    if (!m) continue;
+    const full = path.join(STATE_DIR, f);
+    let mtime;
+    try {
+      mtime = fs.statSync(full).mtimeMs;
+    } catch (_) {
+      continue;
+    }
+    const seen = sessions.get(m[1]) || { paths: [], newest: 0 };
+    seen.paths.push(full);
+    if (mtime > seen.newest) seen.newest = mtime;
+    sessions.set(m[1], seen);
+  }
+
+  let removed = 0;
+  for (const [token, seen] of sessions) {
+    if (Date.now() - seen.newest < SWEEP_AFTER_MS) continue;
+    if (paneAlive(token)) continue;
+    for (const p of seen.paths) {
+      try {
+        fs.unlinkSync(p);
+        removed++;
+      } catch (_) {}
+    }
+  }
+  if (removed) log('swept ' + removed + ' file(s) left by sessions that are over');
+}
+
 /* Blocking poll: this process has nothing else to do until the pane is up. */
 function waitForFile(file, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
@@ -120,6 +195,7 @@ function main() {
     ' size=' + process.stdout.columns + 'x' + process.stdout.rows +
     ' args=' + JSON.stringify(ARGS)
   );
+  sweepState();
   /*
    * This pane belongs to a ccbar layout AND that layout's bar is still alive
    * above it - a live bar keeps its claim warm. Splitting again would stack a
