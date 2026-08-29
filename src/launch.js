@@ -42,8 +42,9 @@ function log(text) {
 const NON_INTERACTIVE =
   /^(-p|--print|--version|-v|--help|-h|mcp|setup-token|install|update|doctor|config|plugin|agents)$/;
 
-function runPlain(note) {
-  if (note) process.stderr.write('\x1b[90mccbar: top bar off - ' + note + '\x1b[0m\n');
+function runPlain(note, plainNote) {
+  const line = plainNote || (note ? 'ccbar: top bar off - ' + note : '');
+  if (line) process.stderr.write('\x1b[90m' + line + '\x1b[0m\n');
   const r = spawnSync('claude.exe', ARGS, { stdio: 'inherit' });
   process.exit(typeof r.status === 'number' ? r.status : 0);
 }
@@ -91,6 +92,18 @@ function main() {
     ' size=' + process.stdout.columns + 'x' + process.stdout.rows +
     ' args=' + JSON.stringify(ARGS)
   );
+  /*
+   * This pane is already part of a ccbar layout - it was created by a launcher
+   * and carries that layout's CCBAR_ID. Splitting again would stack a second
+   * bar on top of the first, which is how a window ends up with a row of them.
+   * Start Claude right here instead: it inherits the same CCBAR_ID, publishes
+   * under it, and the bar already above the pane picks the new session up.
+   */
+  if (process.env.CCBAR_ID) {
+    log('reuse: pane already belongs to layout ' + process.env.CCBAR_ID);
+    return runPlain(null, 'ccbar: using the bar already above this pane');
+  }
+
   const stop = blocker();
   if (stop) {
     log('blocked: ' + stop);
