@@ -1,0 +1,4 @@
+# ccbar keeps nothing in the repo; these are local strays
+*.bak-*
+.DS_Store
+Thumbs.db
