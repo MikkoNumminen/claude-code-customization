@@ -5,13 +5,6 @@ animated at the **top** of the Windows Terminal window, with a session-limit gau
 
 ![The ccbar top pane: the project name in a drifting cool gradient above a session-limit gauge reading 74 percent with a countdown](docs/topbar.png)
 
-```
-⟨ K O O D I A ⟩                      <- the bar, three rows at the top
-SESSION ⟨████████████▋░░░░░░░⟩  74%  T-4h13m
-─────────────────────────────────────────────
-  Claude Code runs in the pane below
-```
-
 The pane you type `cc` in becomes a three-row bar at the top of the window, and Claude Code
 opens beneath it. Where that split cannot apply, the same console is drawn as Claude Code's
 ordinary status line instead, so a session is never left without a gauge.
@@ -41,8 +34,8 @@ while the session below is idle.
 ## Install
 
 ```powershell
-git clone https://github.com/<you>/ccbar.git
-cd ccbar
+git clone https://github.com/MikkoNumminen/claude-code-customization.git
+cd claude-code-customization
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
