@@ -62,7 +62,8 @@ if (!fallbackName) {
   }
 }
 
-const STATE_DIR = path.join(os.homedir(), '.claude', 'ccbar', 'state');
+/* CCBAR_STATE is for the test suite, so it can never disturb a live session */
+const STATE_DIR = process.env.CCBAR_STATE || path.join(os.homedir(), '.claude', 'ccbar', 'state');
 const STOP_FILE = stopToken ? path.join(STATE_DIR, stopToken + '.stop') : '';
 
 const FRAME_MS = 50;              // 20 fps
@@ -194,6 +195,29 @@ function publishWidth() {
 
 /* ---------- drawing ---------- */
 
+/*
+ * Node caches the terminal size and only refreshes it when a resize event
+ * arrives - and in a Windows Terminal pane that event never arrives. Measured
+ * here: splitting a 120-column window left process.stdout.columns still
+ * reporting 120 for a pane that was 58 wide, with no 'resize' event at all.
+ *
+ * Every row would then be composed for a terminal that no longer exists. Too
+ * long for a pane that has narrowed, so it wraps, and a wrapped line scrolls
+ * the three-row composition off the top; too short for one that has widened,
+ * so the whole thing sits left of centre. Both were reported, and both are
+ * this.
+ *
+ * So the console is asked directly, every frame. _refreshSize also emits the
+ * resize event Node owes us, which is what republishes the width.
+ */
+function measure() {
+  try {
+    if (typeof process.stdout._refreshSize === 'function') process.stdout._refreshSize();
+  } catch (_) {
+    /* not a tty, or a Node without it: the cached reading is all there is */
+  }
+}
+
 function frame() {
   const t = Date.now() / 1000;
   const cols = process.stdout.columns || 80;
@@ -276,7 +300,8 @@ function shouldExit() {
 
 function cleanup() {
   try {
-    process.stdout.write('\x1b[?25h' + theme.RESET + '\x1b[2J\x1b[H');
+    /* cursor back, autowrap back, and a clean pane to hand to the prompt */
+    process.stdout.write('\x1b[?25h\x1b[?7h' + theme.RESET + '\x1b[2J\x1b[H');
   } catch (_) {}
   const junk = [];
   if (id) junk.push(path.join(STATE_DIR, id + '.claim'), path.join(STATE_DIR, id + '.width'));
@@ -302,13 +327,21 @@ process.on('uncaughtException', () => {
 });
 
 try {
-  process.stdout.write('\x1b[?25l\x1b[2J'); // hide cursor, clear the pane
+  /*
+   * Hide the cursor, turn autowrap off, clear the pane. Autowrap is the one
+   * that matters: with it on, a row one column too long wraps onto the next
+   * and scrolls the composition off a three-row pane. With it off the terminal
+   * simply clips at the right edge, so the worst a wrong reading can do is
+   * look cropped for one frame, instead of destroying the layout.
+   */
+  process.stdout.write('\x1b[?25l\x1b[?7l\x1b[2J');
 } catch (_) {}
 process.stdout.on('resize', () => {
   publishWidth();
   draw();
 });
 
+measure();
 attach();
 readState();
 claim();
@@ -317,6 +350,7 @@ draw();
 
 setInterval(() => {
   frames++;
+  measure(); // the pane may have been resized since the last frame
   if (frames % READ_EVERY === 0) readState();
   if (frames % HOUSEKEEP_EVERY === 0) {
     if (auto) attach();
