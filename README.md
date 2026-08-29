@@ -59,6 +59,11 @@ That adds a `claude` shim ahead of `claude.exe` on PATH. It hands straight over 
 binary whenever the layout cannot apply — outside Windows Terminal, inside an existing Claude
 session, with non-interactive flags (`-p`, `--print`, `mcp`, …), or in a window under 16 rows.
 
+Starting a session in a window that already has a live bar does not split again: Claude starts
+in that pane and the bar above adopts the new session, so windows never collect a stack of
+bars. A third command, `ccbar`, redraws the bar in the current pane without starting a
+session — useful after updating ccbar, or if you stopped a bar with Ctrl+C.
+
 ### macOS / Linux
 
 ```sh
@@ -72,7 +77,7 @@ Status line only; the top bar is a Windows Terminal pane split with no equivalen
 | Path | What |
 | --- | --- |
 | `~/.claude/ccbar/` | the scripts |
-| `~/.claude/ccbar/bin/` | the `cc` (and optional `claude`) shim |
+| `~/.claude/ccbar/bin/` | the `cc` and `ccbar` commands (and optional `claude` shim) |
 | user `PATH` | that bin directory, prepended — skip with `-NoPathEdit` |
 | `~/.claude/settings.json` | a `statusLine` entry, with a timestamped backup |
 
@@ -117,8 +122,30 @@ cc.cmd ──> launch.js ──> split.ps1 ──> wt split-pane ──> run-cla
 - **statusline.js** is Claude Code's status-line command. It publishes the session's name and
   limit under that token, and stays silent while a bar holds a fresh `.claim` beside it, so
   the console lives in exactly one place. With no bar attached it draws the console itself.
-- **topbar.js** watches exactly its own token — never "the freshest session on the machine",
-  which would attach to, and silence, another window's session.
+- **topbar.js** watches exactly its own token. Started by hand with no token it takes the
+  session published from *its own directory* and skips sessions another bar already claims —
+  never "the freshest session on the machine", which in a second window adopts a stranger,
+  leaves the real session unclaimed (so it draws a second bar at the bottom) and shows the
+  wrong numbers up top.
+
+Two states are easy to get wrong, so they are handled explicitly:
+
+- **A session that ends and comes straight back.** The shell in that pane still carries
+  `CCBAR_ID`, so the restarted session publishes under the same token. The bar does not quit
+  when the session exits — it stands by for two minutes and takes the session back when it
+  returns. Quitting immediately is what leaves a window with no bar and the console back at
+  the bottom.
+- **A pane whose bar is gone.** `CCBAR_ID` lingers in that shell, so the launcher checks for a
+  live claim as well before deciding to reuse a bar. Without that check the pane could never
+  get a bar back.
+
+### Every row fits the window
+
+A line one column too long wraps, and a wrapped line pushes the three-row composition out of
+shape — which is what a narrow window used to do. Both rows now take a hard column budget and
+give things up in order rather than overflowing: the gauge narrows, then the countdown goes,
+then the `SESSION` label, and the title drops its letter-spacing before truncating with an
+ellipsis. The reading itself is never dropped. Checked from 24 to 200 columns.
 
 ### Built to survive Claude Code updates
 
