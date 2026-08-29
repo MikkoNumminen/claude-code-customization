@@ -310,8 +310,13 @@ function shouldExit() {
 
 function cleanup() {
   try {
-    /* cursor back, autowrap back, and a clean pane to hand to the prompt */
-    process.stdout.write('\x1b[?25h\x1b[?7h' + theme.RESET + '\x1b[2J\x1b[H');
+    /*
+     * Cursor back, autowrap back, then hand the ordinary screen back. Leaving
+     * the alternate screen restores whatever the shell had there before the
+     * bar took over, so nothing is cleared here: wiping it would throw away
+     * the history this is meant to give back.
+     */
+    process.stdout.write(theme.RESET + '\x1b[?25h\x1b[?7h\x1b[?1049l');
   } catch (_) {}
   const junk = [];
   if (id) junk.push(path.join(STATE_DIR, id + '.claim'), path.join(STATE_DIR, id + '.width'));
@@ -338,13 +343,23 @@ process.on('uncaughtException', () => {
 
 try {
   /*
-   * Hide the cursor, turn autowrap off, clear the pane. Autowrap is the one
-   * that matters: with it on, a row one column too long wraps onto the next
-   * and scrolls the composition off a three-row pane. With it off the terminal
-   * simply clips at the right edge, so the worst a wrong reading can do is
-   * look cropped for one frame, instead of destroying the layout.
+   * Take the alternate screen, hide the cursor, turn autowrap off, clear.
+   *
+   * The alternate screen is what every full-screen program uses and what this
+   * should have used from the start. A pane drawing on the ordinary screen
+   * keeps a scrollback: the shell's history stays underneath, every frame
+   * drawn piles on top, the pane can be scrolled about, and a resize sets
+   * Windows Terminal reflowing all of it - which is where the fragments of old
+   * gauges came from. The alternate screen has no scrollback at all, so there
+   * is nothing to scroll, nothing to reflow and nothing to inherit. Leaving it
+   * puts the shell's own screen back exactly as it was, which is a better
+   * parting gift than the blank pane it used to hand over.
+   *
+   * Autowrap still matters underneath all that: with it on, a row one column
+   * too long wraps onto the next and pushes the composition out of a two-row
+   * pane. With it off the terminal clips at the right edge instead.
    */
-  process.stdout.write('\x1b[?25l\x1b[?7l\x1b[2J');
+  process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J');
 } catch (_) {}
 process.stdout.on('resize', () => {
   publishWidth();

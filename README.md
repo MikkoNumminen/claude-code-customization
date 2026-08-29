@@ -219,11 +219,16 @@ there is no resize verb in the `wt` command line to put it back: `resize-pane` d
 in a split window as much as anywhere else. `alt+shift+up` in the bar's own pane does it by
 hand, and a fresh `cc` starts from two rows again.
 
-What ccbar can do is make sure those extra rows are empty. Every frame erases from the end of
-the composition to the end of the pane, because a resize also makes Windows Terminal reflow
-the buffer, and rows the composition does not reach otherwise keep whatever the reflow left
-there — fragments of an older, wider gauge, appearing and disappearing as the window is
-dragged.
+What ccbar can do is make sure those extra rows are empty. The bar draws on the **alternate
+screen**, the one every full-screen program takes, so its pane has no scrollback: nothing to
+scroll through, nothing for a resize to reflow, and none of the shell's history left
+underneath to surface. On top of that every frame erases from the end of the composition to
+the end of the pane. Before both, rows the composition never reached kept whatever the reflow
+had left in them — fragments of an older, wider gauge, appearing and disappearing as the
+window was dragged about.
+
+Leaving the alternate screen puts the shell's own screen back exactly as it was, so the pane
+the bar hands back still has the history it started with.
 
 ### Built to survive Claude Code updates
 

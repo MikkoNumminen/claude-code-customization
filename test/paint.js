@@ -34,7 +34,9 @@ module.exports = async function () {
     bar.stdout.on('data', (d) => (out += d));
     await wait(1200);
 
-    const opening = out.slice(0, 40);
+    const opening = out.slice(0, 60);
+    s.ok('takes the alternate screen, so the pane has no scrollback to reflow',
+      opening.includes('\x1b[?1049h'));
     s.ok('hides the cursor on the way in', opening.includes('\x1b[?25l'));
     s.ok('turns autowrap off, so a long row is clipped and never wraps', opening.includes('\x1b[?7l'));
     s.ok('clears the pane before the first frame', opening.includes('\x1b[2J'));
@@ -50,6 +52,9 @@ module.exports = async function () {
     const parting = out.slice(before);
     s.ok('gives the cursor back on the way out', parting.includes('\x1b[?25h'));
     s.ok('gives autowrap back to the shell that follows it', parting.includes('\x1b[?7h'));
+    s.ok('hands the ordinary screen back, history and all', parting.includes('\x1b[?1049l'));
+    s.ok('and does not wipe it on the way past', !parting.includes('\x1b[2J'),
+      'leaving the alternate screen restores the shell as it was');
   } finally {
     discard(state);
   }
