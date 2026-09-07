@@ -99,14 +99,21 @@ function terminalWidth(key) {
 }
 
 function run(data) {
-  const { projectName, limitInfo, withEta } = require('./payload.js');
+  const { projectName, limitInfo, withEta, accountLimit } = require('./payload.js');
   const name = projectName(data);
-  const info = withEta(limitInfo(data));
+  let info = withEta(limitInfo(data));
   const key = sessionKey(data);
 
   publish(key, data, name, info);
 
   if (claimed(key)) return ''; // a top-bar pane is drawing this session
+
+  /* the plan limit is the account's: show the freshest reading any session
+     on the machine has, not the one this session last fetched (payload.js) */
+  if (!info || info.label === 'SESSION') {
+    const account = accountLimit(require('./state.js').readings(STATE_DIR));
+    if (account) info = withEta(account);
+  }
 
   const theme = require('./theme.js');
   const t = Date.now() / 1000; // continuous time, sampled at the host's redraw rate

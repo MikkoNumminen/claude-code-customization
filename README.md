@@ -269,6 +269,26 @@ window was dragged about.
 Leaving the alternate screen puts the shell's own screen back exactly as it was, so the pane
 the bar hands back still has the history it started with.
 
+### The gauge is the account's, not one session's
+
+Each session learns the five-hour figure from its own API calls, and an idle one goes on
+reporting whatever it last saw. Measured with three windows open on one account: 40, 41 and
+43 percent of the same window at the same moment, and only the window being typed into
+moved. A bar over an idle window therefore trailed the real figure by however long that
+window had been idle, which read as "the gauge updates too slowly" — and, side by side, as
+two bars disagreeing.
+
+The limit is the account's, so every bar and status line now takes the freshest reading any
+session on the machine has published: the newest reset window anybody has seen, and inside it
+the highest figure. Usage inside a window only goes up, so the highest reading is the latest
+one. A session still reporting the previous window after a reset is passed over by the first
+rule, one lagging inside the current window by the second. Context-window readings never
+merge — that gauge really is one session's own.
+
+What this cannot do is move the figure faster than Claude Code fetches it. With a single
+session open the gauge shows exactly what that session's last API response said, in whole
+percent, and stands still between responses.
+
 ### Built to survive Claude Code updates
 
 Only the documented `statusLine` command contract is used: JSON on stdin, text on stdout.

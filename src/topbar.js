@@ -38,7 +38,8 @@ const path = require('path');
 
 const theme = require('./theme.js');
 const claim = require('./claim.js');
-const { etaText, chooseSession } = require('./payload.js');
+const { readings } = require('./state.js');
+const { etaText, accountLimit, chooseSession } = require('./payload.js');
 
 /* ---------- arguments ---------- */
 
@@ -179,6 +180,16 @@ function readState() {
     if (parsed && typeof parsed === 'object') state = parsed;
   } catch (_) {
     /* not published yet, or caught mid-write: keep the last good reading */
+  }
+  /*
+   * The plan limit is the account's, and this session only learns a new
+   * figure from its own API calls - idle, it reports the one it last saw. So
+   * the gauge shows the freshest reading any session on the machine has, and
+   * a bar over an idle window no longer trails the one being typed into.
+   */
+  if (state && state.label !== 'CONTEXT') {
+    const account = accountLimit(readings(STATE_DIR));
+    if (account) state = Object.assign({}, state, account);
   }
 }
 

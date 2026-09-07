@@ -77,14 +77,8 @@ function limitInfo(d) {
 
 /* Countdown text, recomputed locally so it stays true between payloads. */
 function etaText(ts) {
-  if (ts === null || ts === undefined) return null;
-  let ms;
-  if (typeof ts === 'number') ms = ts > 1e12 ? ts : ts * 1000;
-  else {
-    const parsed = Date.parse(String(ts));
-    if (Number.isNaN(parsed)) return null;
-    ms = parsed;
-  }
+  const ms = resetMs(ts);
+  if (ms === null) return null;
   const diff = ms - Date.now();
   if (!Number.isFinite(diff)) return null;
   if (diff <= 0) return '00m';
@@ -97,6 +91,51 @@ function etaText(ts) {
 function withEta(info) {
   if (!info) return null;
   return Object.assign({}, info, { eta: etaText(info.resets) });
+}
+
+/* ---------- one limit, many sessions ---------- */
+
+/*
+ * The five-hour limit belongs to the account, not to a session - but each
+ * session only learns the new figure from its own API calls, so an idle
+ * session goes on reporting the reading it last saw. Measured: three windows
+ * open on the same account showed 40, 41 and 43 percent at the same moment,
+ * and only the one being typed into moved. A bar over an idle window then
+ * lags the real figure by however long that window has been idle, which is
+ * what "the gauge updates too slowly" was.
+ *
+ * Usage inside one window only goes up, and every session names the window
+ * it is reporting on by its reset time. So across every session on the
+ * machine: take the newest window anybody has seen, and inside it the highest
+ * reading. An idle session still reporting the previous window is passed
+ * over by the first rule; one lagging inside the current window by the
+ * second. Only plan limits merge - a context-window reading is that
+ * session's alone.
+ *
+ * readings: [{ used, resets, label }] -> { used, resets, label } | null
+ */
+function accountLimit(readings) {
+  let best = null;
+  let bestAt = null;
+  for (const r of readings || []) {
+    if (!r || r.label !== 'SESSION' || typeof r.used !== 'number' || !Number.isFinite(r.used)) continue;
+    const at = resetMs(r.resets);
+    const newer = best !== null && at !== null && (bestAt === null || at > bestAt);
+    const same = best !== null && at === bestAt;
+    if (best === null || newer || (same && r.used > best.used)) {
+      best = { used: r.used, resets: r.resets, label: 'SESSION' };
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
+/* A reset time as milliseconds, whatever form the payload gave it in. */
+function resetMs(ts) {
+  if (ts === null || ts === undefined) return null;
+  if (typeof ts === 'number') return Number.isFinite(ts) ? (ts > 1e12 ? ts : ts * 1000) : null;
+  const parsed = Date.parse(String(ts));
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 /* ---------- which session does a bar belong to ---------- */
@@ -135,4 +174,4 @@ function chooseSession(candidates, opts) {
   return best ? best.key : null;
 }
 
-module.exports = { projectName, limitInfo, etaText, withEta, chooseSession, normDir };
+module.exports = { projectName, limitInfo, etaText, withEta, accountLimit, chooseSession, normDir };
