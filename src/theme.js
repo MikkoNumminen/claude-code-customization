@@ -276,4 +276,36 @@ function center(s, cols) {
   return ' '.repeat(pad) + s;
 }
 
-module.exports = { titleLine, meterLine, paint, center, visibleWidth, CAP, RESET, DIM, BOLD };
+/*
+ * The whole console, as rows, for a pane of `cols` by `rows`.
+ *
+ * Two rows when the pane has two: the title card centred, the gauge centred
+ * beneath it. Both are given a hard column budget - a line one character too
+ * long wraps, and a wrapped line pushes the composition out of the pane. One
+ * column is left spare, because writing into the last cell wraps too.
+ *
+ * One row when the pane has one. Windows Terminal keeps panes in proportion to
+ * the window, so a bar given two rows of a seventy-row window is given one
+ * when that window lands on a monitor with thirty. Two rows drawn into one
+ * scroll the title straight out of the pane and leave half a gauge; so on one
+ * row the title and the gauge share it, the gauge giving up its trimmings
+ * first and the title never giving up the row.
+ */
+function compose(name, info, cols, rows, t) {
+  const budget = Math.max(12, cols - 2);
+  if (rows >= 2) {
+    const gauge = Math.max(8, Math.min(46, budget - 24));
+    return [
+      center(titleLine(name, t, { max: budget }), cols),
+      center(meterLine(info, t, { width: gauge, max: budget }), cols),
+    ];
+  }
+
+  const title = titleLine(name, t, { max: Math.max(8, Math.floor(budget * 0.45)) });
+  const left = budget - visibleWidth(title) - 2;
+  if (left < 12) return [center(title, cols)]; // no room for even a bare gauge
+  const gauge = Math.max(8, Math.min(30, left - 24));
+  return [center(title + '  ' + meterLine(info, t, { width: gauge, max: left }), cols)];
+}
+
+module.exports = { titleLine, meterLine, compose, paint, center, visibleWidth, CAP, RESET, DIM, BOLD };

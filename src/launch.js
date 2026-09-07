@@ -212,6 +212,17 @@ function main() {
    * that opened this pane, and it is already done.
    */
   if (process.env.CCBAR_ID && barIsLive(process.env.CCBAR_ID)) {
+    /*
+     * Called from inside the session that pane is running - `claude update`
+     * from a Bash tool, `!claude doctor` at the prompt - this is a sub-command
+     * of a session that is still going, not a session of its own. It borrows
+     * nothing and must mark nothing: the .stop it used to leave took the bar
+     * down the moment the update finished, while the session went on below.
+     */
+    if (process.env.CLAUDECODE) {
+      log('nested: inside session ' + process.env.CCBAR_ID + ', leaving its bar alone');
+      return runPlain(null, '');
+    }
     log('reuse: live bar holds layout ' + process.env.CCBAR_ID);
     return runPlain(null, 'ccbar: using the bar already above this pane', process.env.CCBAR_ID);
   }

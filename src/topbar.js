@@ -13,6 +13,16 @@
  * to write anything), and the bar stands down on either. A gauge left hovering
  * over a finished session is just furniture.
  *
+ * Nothing else takes it down. Not the machine sleeping, not the window being
+ * carried to a monitor of another size, not a session that has gone quiet.
+ * The bar used to judge the session dead when its state file looked two
+ * minutes old, and a clock that has jumped forward over a sleep makes every
+ * file look hours old at once - so the bar quit in its first frame back, and
+ * the console reappeared at the bottom of the window. Now the pane pid and the
+ * stop marker are the only word on a session that has a runner; the age rule
+ * survives only for sessions nobody left a marker for, and it counts frames
+ * the bar has actually drawn rather than the wall clock.
+ *
  * Given a token it draws exactly that session. Without one it attaches to the
  * session started in this directory - the pane below is a sibling of this one,
  * so the directory is the link, never "whichever session is newest". While
@@ -27,6 +37,7 @@ const os = require('os');
 const path = require('path');
 
 const theme = require('./theme.js');
+const claim = require('./claim.js');
 const { etaText, chooseSession } = require('./payload.js');
 
 /* ---------- arguments ---------- */
@@ -64,22 +75,33 @@ if (!fallbackName) {
 
 /* CCBAR_STATE is for the test suite, so it can never disturb a live session */
 const STATE_DIR = process.env.CCBAR_STATE || path.join(os.homedir(), '.claude', 'ccbar', 'state');
-const STOP_FILE = stopToken ? path.join(STATE_DIR, stopToken + '.stop') : '';
 
 const FRAME_MS = 50;              // 20 fps
 const READ_EVERY = 10;            // re-read state twice a second
 const HOUSEKEEP_EVERY = 20;       // claim, attach and exit checks once a second
 const ATTACH_FRESH_MS = 20000;    // a session counts as live if seen this recently
 const ATTACH_FALLBACK_MS = 60000; // no new session by then -> settle for an existing one
-const CLAIM_FRESH_MS = 6000;      // a claim older than this is nobody's
-const STALE_EXIT_MS = 120000;     // attached session went quiet this long -> stand down
+/* two minutes of *drawn* frames, see quiet(); CCBAR_QUIET_MS is for the tests */
+const STALE_EXIT_FRAMES = (parseInt(process.env.CCBAR_QUIET_MS || '', 10) || 120000) / FRAME_MS;
 const EXIT_CHECK_EVERY = 4;       // the session ending is noticed within ~200ms
+const RESUME_GAP_MS = 5000;       // a frame this late means the machine was away
 
 let id = explicitId;
 let state = null;
 let shown = null;                 // eased gauge value
 let frames = 0;
 const started = Date.now();
+
+/* Same trail the launcher keeps, so a bar that vanished can say why. */
+function log(text) {
+  try {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    fs.appendFileSync(
+      path.join(STATE_DIR, 'launch.log'),
+      new Date().toISOString() + '  bar ' + (stopToken || id || '?').slice(0, 8) + ': ' + text + '\n'
+    );
+  } catch (_) {}
+}
 
 /* ---------- session attachment ---------- */
 
@@ -101,11 +123,7 @@ const PREEXISTING = (() => {
 
 /* Someone else's bar is already drawing that session. */
 function heldByAnother(key) {
-  try {
-    return Date.now() - fs.statSync(path.join(STATE_DIR, key + '.claim')).mtimeMs < CLAIM_FRESH_MS;
-  } catch (_) {
-    return false;
-  }
+  return claim.live(STATE_DIR, key, { confirm: false });
 }
 
 function attach() {
@@ -144,7 +162,10 @@ function attach() {
     allowOld: attachMode === 'any' || Date.now() - started > ATTACH_FALLBACK_MS,
     preexisting: Array.from(PREEXISTING),
   });
-  if (picked) id = picked;
+  if (picked) {
+    id = picked;
+    log('attached');
+  }
 }
 
 function stateFile() {
@@ -162,12 +183,9 @@ function readState() {
 }
 
 /* Tells the attached session's status line to stay quiet. */
-function claim() {
+function renewClaim() {
   if (!id) return;
-  try {
-    fs.mkdirSync(STATE_DIR, { recursive: true });
-    fs.writeFileSync(path.join(STATE_DIR, id + '.claim'), String(Date.now()));
-  } catch (_) {}
+  claim.write(STATE_DIR, id);
 }
 
 /*
@@ -221,6 +239,7 @@ function measure() {
 function frame() {
   const t = Date.now() / 1000;
   const cols = process.stdout.columns || 80;
+  const rows = process.stdout.rows || 2;
   const name = (state && state.name) || fallbackName;
 
   let info = null;
@@ -231,27 +250,16 @@ function frame() {
   }
 
   /*
-   * The title card sits centred, the gauge centred beneath it. Both are given
-   * a hard column budget: a line one character too long wraps, and a wrapped
-   * line pushes the whole composition down and out of the three-row pane.
-   * One column is left spare, because writing into the last cell wraps too.
-   */
-  const budget = Math.max(12, cols - 2);
-  const gauge = Math.max(8, Math.min(46, budget - 24));
-  const line1 = theme.center(theme.titleLine(name, t, { max: budget }), cols);
-  const line2 = theme.center(theme.meterLine(info, t, { width: gauge, max: budget }), cols);
-
-  /*
-   * Home, the two rows, then erase everything from here to the end of the
-   * pane. That last part is not tidiness: Windows Terminal scales panes with
-   * the window, so a pane that started two rows tall becomes six when the
-   * window is made taller, and it reflows the buffer on every resize. Rows the
+   * Home, the rows, then erase everything from here to the end of the pane.
+   * That last part is not tidiness: Windows Terminal scales panes with the
+   * window, so a pane that started two rows tall becomes six when the window
+   * is made taller, and it reflows the buffer on every resize. Rows the
    * composition does not reach then keep whatever the reflow left there -
    * fragments of an older, wider gauge, which is exactly what they looked
    * like. Erasing below the composition every frame means there is nothing
    * left to see, whatever height the pane has been given.
    */
-  return '\x1b[H' + line1 + '\x1b[K\n' + line2 + '\x1b[J';
+  return '\x1b[H' + theme.compose(name, info, cols, rows, t).join('\x1b[K\n') + '\x1b[J';
 }
 
 function draw() {
@@ -263,20 +271,37 @@ function draw() {
 /* ---------- lifetime ---------- */
 
 /*
+ * The session this bar answers for. The launcher names it with --stop; the
+ * `ccbar` command, run by hand in a pane whose bar was stopped, has to learn
+ * it by attaching - and the markers the runner leaves are filed under that
+ * same name, so once attached the bar watches them exactly as if it had been
+ * told.
+ */
+function owner() {
+  return stopToken || id;
+}
+
+function markerPid() {
+  const key = owner();
+  if (!key) return null;
+  let pid;
+  try {
+    pid = parseInt(fs.readFileSync(path.join(STATE_DIR, key + '.started'), 'utf8'), 10);
+  } catch (_) {
+    return null; // no marker to read: nothing is being claimed either way
+  }
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+/*
  * The pane below wrote its shell's pid when it came up. Watching it covers the
  * endings that never get to write a marker - the pane closed from its own X,
  * the session killed outright - which would otherwise leave the bar drawing a
- * session that is already gone until the stale timeout finally ran out.
+ * session that is already gone.
  */
 function paneGone() {
-  if (!stopToken) return false;
-  let pid;
-  try {
-    pid = parseInt(fs.readFileSync(path.join(STATE_DIR, stopToken + '.started'), 'utf8'), 10);
-  } catch (_) {
-    return false; // no marker to read: nothing is being claimed either way
-  }
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+  const pid = markerPid();
+  if (pid === null) return false;
   try {
     process.kill(pid, 0); // signal 0 only asks whether it is still there
     return false;
@@ -287,25 +312,58 @@ function paneGone() {
   }
 }
 
-function shouldExit() {
+function stopped() {
+  const key = owner();
+  if (!key) return false;
+  try {
+    return fs.existsSync(path.join(STATE_DIR, key + '.stop'));
+  } catch (_) {
+    return false;
+  }
+}
+
+/*
+ * A session with no runner behind it - one keyed by Claude's own session id,
+ * attached to by hand - leaves no marker when it ends. Its state file simply
+ * stops changing, and that is the only sign there is. Quiet is measured in
+ * frames this bar has drawn since the file last changed, never in wall-clock
+ * time: a sleeping machine draws no frames, so it comes back with the count
+ * where it left it, while its clock has moved on by hours.
+ */
+let lastStateMtime = null;
+let quietFrames = 0;
+
+function quiet() {
+  let m;
+  try {
+    m = fs.statSync(stateFile()).mtimeMs;
+  } catch (_) {
+    return state !== null; // state file vanished under us
+  }
+  if (m !== lastStateMtime) {
+    lastStateMtime = m;
+    quietFrames = 0;
+    return false;
+  }
+  quietFrames += EXIT_CHECK_EVERY;
+  return quietFrames > STALE_EXIT_FRAMES;
+}
+
+/* -> reason string, or null to keep drawing */
+function exitReason() {
   /*
    * The session below is over: it left the marker on its way out, and the pane
    * it ran in has closed itself. The bar goes with it. Lingering here - in the
    * hope of a session restarted in the same pane - is what used to leave a dead
    * gauge pinned above a plain prompt for minutes after the session had ended.
    */
-  if (STOP_FILE) {
-    try {
-      if (fs.existsSync(STOP_FILE)) return true;
-    } catch (_) {}
-  }
-  if (paneGone()) return true;
-  if (!id) return Date.now() - started > 10 * 60 * 1000; // never found a session
-  try {
-    return Date.now() - fs.statSync(stateFile()).mtimeMs > STALE_EXIT_MS;
-  } catch (_) {
-    return state !== null; // state file vanished under us
-  }
+  if (stopped()) return 'stop marker';
+  if (paneGone()) return 'pane ' + markerPid() + ' is gone';
+  if (!id) return Date.now() - started > 10 * 60 * 1000 ? 'never found a session' : null;
+  /* a runner's pid is the truth about its session; only without one is quiet
+     taken as an ending */
+  if (markerPid() !== null) return null;
+  return quiet() ? 'session quiet for ' + Math.round(STALE_EXIT_FRAMES * FRAME_MS / 1000) + 's of drawing' : null;
 }
 
 function cleanup() {
@@ -319,8 +377,9 @@ function cleanup() {
     process.stdout.write(theme.RESET + '\x1b[?25h\x1b[?7h\x1b[?1049l');
   } catch (_) {}
   const junk = [];
-  if (id) junk.push(path.join(STATE_DIR, id + '.claim'), path.join(STATE_DIR, id + '.width'));
-  if (STOP_FILE) junk.push(STOP_FILE, path.join(STATE_DIR, stopToken + '.started'));
+  if (id) junk.push(claim.file(STATE_DIR, id), path.join(STATE_DIR, id + '.width'));
+  const key = owner();
+  if (key) junk.push(path.join(STATE_DIR, key + '.stop'), path.join(STATE_DIR, key + '.started'));
   for (const f of junk) {
     try {
       fs.unlinkSync(f);
@@ -328,14 +387,14 @@ function cleanup() {
   }
 }
 
-process.on('SIGINT', () => {
+function leave(reason) {
+  log('exit: ' + reason);
   cleanup();
   process.exit(0);
-});
-process.on('SIGTERM', () => {
-  cleanup();
-  process.exit(0);
-});
+}
+
+process.on('SIGINT', () => leave('SIGINT'));
+process.on('SIGTERM', () => leave('SIGTERM'));
 process.on('exit', cleanup);
 process.on('uncaughtException', () => {
   /* a bad frame must never take the pane down */
@@ -361,37 +420,62 @@ try {
    */
   process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J');
 } catch (_) {}
-process.stdout.on('resize', () => {
-  publishWidth();
+
+function redrawFromEmpty() {
   /* the reflow that comes with a resize can leave anything anywhere in the
      pane, so this one starts from an empty one rather than drawing over it */
   try {
     process.stdout.write('\x1b[2J');
   } catch (_) {}
   draw();
+}
+
+process.stdout.on('resize', () => {
+  publishWidth();
+  redrawFromEmpty();
 });
 
 measure();
 attach();
 readState();
-claim();
+renewClaim();
 publishWidth();
 draw();
+log('drawing ' + (process.stdout.columns || '?') + 'x' + (process.stdout.rows || '?'));
+
+let lastFrameAt = Date.now();
 
 setInterval(() => {
   frames++;
+  const now = Date.now();
+  /*
+   * Back from sleep, or from being frozen while the window found a new monitor.
+   * Every timestamp on disk is now old, so the claim is renewed before the
+   * session's status line can read it as abandoned, and the pane - which may
+   * be a different size on a different screen - is measured and cleared
+   * rather than drawn over.
+   */
+  if (now - lastFrameAt > RESUME_GAP_MS) {
+    log('resumed after ' + Math.round((now - lastFrameAt) / 1000) + 's away');
+    measure();
+    renewClaim();
+    publishWidth();
+    redrawFromEmpty();
+  }
+  lastFrameAt = now;
+
   measure(); // the pane may have been resized since the last frame
   if (frames % READ_EVERY === 0) readState();
   if (frames % HOUSEKEEP_EVERY === 0) {
     if (auto) attach();
-    claim();
+    renewClaim();
     publishWidth();
   }
   /* far more often than the rest: the whole point of the bar is that it leaves
      with its session, and a second of afterlife is a second too many */
-  if (frames % EXIT_CHECK_EVERY === 0 && shouldExit()) {
-    cleanup();
-    process.exit(0);
+  if (frames % EXIT_CHECK_EVERY === 0) {
+    const reason = exitReason();
+    if (reason) leave(reason);
   }
   draw();
 }, FRAME_MS);

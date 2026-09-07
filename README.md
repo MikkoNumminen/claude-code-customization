@@ -149,7 +149,39 @@ has to reach the bar:
   to the session that opened the pane and finished long ago.
 
 `CCBAR_ID` in a shell is not on its own proof of a bar: the launcher checks for a live claim
-as well before reusing one, or a pane whose bar had gone could never get one back.
+as well before reusing one, or a pane whose bar had gone could never get one back. And a
+`claude` run from *inside* the session — `claude update` from a Bash tool, `!claude doctor`
+at the prompt — is a sub-command of a session still going, not a session of its own. It
+borrows nothing and marks nothing; the marker it used to leave took the bar down the moment
+the update finished, while the session went on below.
+
+### And not one second less
+
+Those are the only endings. The bar does not stand down because the machine slept, because
+the window was carried to another monitor, or because the session went quiet — all three
+were reported as "the bar disappears and the console turns up at the bottom", and all three
+were one rule: the bar judged its session dead when the state file looked two minutes old.
+A clock that has jumped forward over a sleep makes every file look hours old at once, so the
+bar quit in its first frame back, and its cleanup took the claim with it, so the session's
+status line drew the console at the bottom of the window from then on.
+
+Now a session that has a runner is judged by that runner's pid and its `.stop` marker, and by
+nothing else. The age rule survives only for sessions nobody left a marker for — one keyed by
+Claude's own session id and attached to by hand — and it counts *frames the bar has drawn*
+since the file last changed, never the wall clock: a sleeping machine draws no frames, so it
+comes back with the count where it left it.
+
+The status line gets the same treatment from the other side. The bar's `.claim` carries its
+pid, and a claim counts as live if it was touched in the last few seconds **or** its pid is
+running and touches the file again within the second — because the first status line after a
+wake tends to run before the bar's first frame back, when its mtime alone says "no bar". A
+pid that is running but never touches the file is a stranger who inherited the number, and
+does not count. On waking, the bar also renews its claim, re-measures its pane and redraws
+from empty before anything else, since the pane may be a different size on a different
+screen.
+
+Every exit the bar makes is logged with its reason in `state/launch.log`, so a bar that is
+gone can say why.
 
 A session that dies in its first ten seconds is the one exception to the pane closing: that
 is a startup failure, and a pane that vanishes takes the reason with it, so it is held open
@@ -169,10 +201,11 @@ node test/run.js
 
 No dependencies and nothing to install. Every suite runs against `src/` in a state directory
 of its own, handed over through `CCBAR_STATE`, so a run cannot disturb a session you have
-open. Covered: the composition fits every width from 24 to 200 columns; the bar leaves with
-its session and takes its files with it; the status line always ends, even when nobody closes
-its stdin; two windows never read each other's width; the sweep clears finished sessions and
-nothing else.
+open. Covered: the composition fits every width from 20 to 200 columns, at two rows and at
+one; the bar leaves with its session and takes its files with it; it survives a sleep —
+every file aged hours back under running processes — and so does the status line's respect
+for its claim; the status line always ends, even when nobody closes its stdin; two windows
+never read each other's width; the sweep clears finished sessions and nothing else.
 
 What that cannot cover is the window itself. For the pane really closing, the layout really
 collapsing, and the bar really following a pane that is resized under it, there is an
@@ -218,6 +251,12 @@ window, so making a window twice as tall makes the bar's pane twice as tall with
 there is no resize verb in the `wt` command line to put it back: `resize-pane` does nothing,
 in a split window as much as anywhere else. `alt+shift+up` in the bar's own pane does it by
 hand, and a fresh `cc` starts from two rows again.
+
+It goes the other way too. Two rows of a seventy-row window become one when that window
+lands on a monitor with thirty — which, on a laptop that moves between docks, is every day.
+Two rows drawn into one scroll the title straight out of the pane and leave half a gauge, so
+on a single row the title and the gauge share it: the gauge gives up its trimmings first and
+the title never gives up the row. Checked at every width, at two rows and at one.
 
 What ccbar can do is make sure those extra rows are empty. The bar draws on the **alternate
 screen**, the one every full-screen program takes, so its pane has no scrollback: nothing to

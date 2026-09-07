@@ -16,10 +16,10 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const claim = require('./claim.js');
 
 /* CCBAR_STATE is for the test suite, so it can never disturb a live session */
 const STATE_DIR = process.env.CCBAR_STATE || path.join(os.homedir(), '.claude', 'ccbar', 'state');
-const CLAIM_FRESH_MS = 6000; // a pane must have touched its claim this recently
 
 function sessionKey(data) {
   /* Started by the ccbar launcher: it named this session, and the pane above
@@ -59,12 +59,16 @@ function publish(key, data, name, info) {
   }
 }
 
+/*
+ * A top pane is drawing this session. Its claim is either freshly touched or
+ * held by a bar that is demonstrably still running - the difference matters
+ * on the first status line after the machine wakes, when every file on disk
+ * looks hours old and the bar has not yet had its first frame back. Drawing
+ * the console down here on that evidence is how the bar "moved to the
+ * bottom" after every sleep.
+ */
 function claimed(key) {
-  try {
-    return Date.now() - fs.statSync(path.join(STATE_DIR, key + '.claim')).mtimeMs < CLAIM_FRESH_MS;
-  } catch (_) {
-    return false;
-  }
+  return claim.live(STATE_DIR, key);
 }
 
 /*
