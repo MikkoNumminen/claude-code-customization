@@ -7,8 +7,15 @@
  * and written as real JSON, with the rest of the user's settings preserved
  * byte-for-byte in meaning, and a timestamped backup left behind.
  *
- *   node settings.js install
+ *   node settings.js install [--refresh <seconds>]
  *   node settings.js uninstall
+ *
+ * The refresh interval is how often Claude Code re-runs the status line on a
+ * timer, on top of the runs its own events trigger (every new message, with
+ * a 300ms debounce). Claude Code allows no less than 1. The default here is
+ * 5: the countdown is in minutes and the gauge in whole percent, so nothing
+ * on the line moves faster than that, and every run is a node process. A
+ * value already in settings.json from an earlier install is kept.
  */
 
 const fs = require('fs');
@@ -18,7 +25,22 @@ const path = require('path');
 const MODE = process.argv[2];
 const HOME = os.homedir();
 const FILE = path.join(HOME, '.claude', 'settings.json');
-const STATUSLINE = path.join(HOME, '.claude', 'ccbar', 'statusline.js');
+/* Forward slashes: on Windows Claude Code runs the command through Git Bash,
+   which reads an unquoted backslash as an escape. Both forms have worked in
+   practice; this is the form the documentation asks for. */
+const STATUSLINE = path.join(HOME, '.claude', 'ccbar', 'statusline.js').replace(/\\/g, '/');
+const DEFAULT_REFRESH = 5;
+
+function refreshArg() {
+  const i = process.argv.indexOf('--refresh');
+  if (i === -1) return null;
+  const n = parseInt(process.argv[i + 1], 10);
+  if (!Number.isInteger(n) || n < 1) {
+    console.error('--refresh wants a whole number of seconds, 1 or more');
+    process.exit(2);
+  }
+  return n;
+}
 
 function read() {
   try {
@@ -50,14 +72,20 @@ const settings = read();
 
 if (MODE === 'install') {
   if (fs.existsSync(FILE)) backup();
+  const cur = settings.statusLine;
+  const ours = cur && typeof cur.command === 'string' && cur.command.indexOf('ccbar') !== -1;
+  const kept = ours && Number.isInteger(cur.refreshInterval) && cur.refreshInterval >= 1 ? cur.refreshInterval : null;
+  const asked = refreshArg();
+  const refresh = asked !== null ? asked : kept !== null ? kept : DEFAULT_REFRESH;
   settings.statusLine = {
     type: 'command',
     command: 'node "' + STATUSLINE + '"',
-    refreshInterval: 1,
+    refreshInterval: refresh,
     padding: 0,
   };
   write(settings);
-  console.log('settings.json: statusLine -> ccbar');
+  console.log('settings.json: statusLine -> ccbar, refreshInterval ' + refresh +
+    (asked === null && kept !== null ? ' (kept from the existing entry)' : ''));
 } else if (MODE === 'uninstall') {
   const cur = settings.statusLine;
   if (cur && typeof cur.command === 'string' && cur.command.indexOf('ccbar') !== -1) {

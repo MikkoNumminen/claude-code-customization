@@ -17,6 +17,11 @@
 .PARAMETER NoPathEdit
   Do not touch the user PATH. You will need to call the launcher by full path.
 
+.PARAMETER RefreshInterval
+  How often, in seconds, Claude Code re-runs the status line on a timer, on
+  top of its own event-driven runs. Default 5; Claude Code allows no less
+  than 1. Left out, a value from an earlier install is kept.
+
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\install.ps1
 
@@ -26,7 +31,8 @@
 [CmdletBinding()]
 param(
   [switch]$ShadowClaude,
-  [switch]$NoPathEdit
+  [switch]$NoPathEdit,
+  [int]$RefreshInterval = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -101,7 +107,9 @@ if ($NoPathEdit) {
 # --- status line -------------------------------------------------------------
 
 Say ''
-& $node.Source (Join-Path $prefix 'settings.js') install
+$settingsArgs = @((Join-Path $prefix 'settings.js'), 'install')
+if ($RefreshInterval -gt 0) { $settingsArgs += @('--refresh', "$RefreshInterval") }
+& $node.Source @settingsArgs
 if ($LASTEXITCODE -ne 0) {
   Say 'Could not update settings.json - see the message above.' 'Red'
   exit 1

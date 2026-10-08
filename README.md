@@ -83,6 +83,24 @@ Status line only; the top bar is a Windows Terminal pane split with no equivalen
 
 No execution policy is changed, no PowerShell profile is written, nothing else is modified.
 
+### Refresh interval
+
+Claude Code re-runs the status line whenever something happens in the session - every new
+message, with a 300 ms debounce - and, on top of that, on a timer: the `refreshInterval` in
+the `statusLine` entry, in seconds, no less than 1. Every run is a node process, so the
+installer sets the timer to **5**. Nothing on the line moves faster than that: the countdown
+is in minutes, the gauge in whole percent, and the top bar animates on its own at 20 fps
+without the status line's help. The timer is there so the countdown ticks and the account's
+figure follows the other windows while this one is idle.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .install.ps1 -RefreshInterval 2
+```
+
+`./install.sh --refresh 2` on macOS and Linux. Reinstalling keeps the value already in
+`settings.json`, so an install that was set to 1 stays at 1 - safe now that a run can no
+longer outlive its second (see *Troubleshooting* below) - until you ask for another.
+
 ## Uninstall
 
 ```powershell

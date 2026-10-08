@@ -4,6 +4,9 @@
 # Installs the status line only. The top bar is a Windows Terminal pane split
 # and has no equivalent here, so on this platform ccbar draws the same console
 # as Claude Code's ordinary status line, under the prompt.
+#
+#   ./install.sh [--refresh <seconds>]   how often the timer re-runs the line
+#                                         (default 5; Claude Code allows 1 or more)
 set -e
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -19,7 +22,7 @@ mkdir -p "$prefix/state"
 cp "$here"/src/*.js "$prefix/"
 echo "installed to : $prefix"
 
-node "$prefix/settings.js" install
+node "$prefix/settings.js" install "$@"
 
 echo
 echo "Done. Start a new Claude Code session to see the console under the prompt."
