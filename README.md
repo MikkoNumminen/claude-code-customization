@@ -222,8 +222,12 @@ of its own, handed over through `CCBAR_STATE`, so a run cannot disturb a session
 open. Covered: the composition fits every width from 20 to 200 columns, at two rows and at
 one; the bar leaves with its session and takes its files with it; it survives a sleep —
 every file aged hours back under running processes — and so does the status line's respect
-for its claim; the status line always ends, even when nobody closes its stdin; two windows
-never read each other's width; the sweep clears finished sessions and nothing else.
+for its claim; the status line always ends, even when nobody closes its stdin, and even when
+the host cancels it mid-run - thirty runs, every other one cut off the way Claude Code cuts
+one off, and nothing left three seconds later, every run done inside two; the watchdog fires
+at its deadline with exit 1; a child given a deadline is killed with its whole tree; a
+reading cached a moment ago is reused and the session's own never is; two windows never read
+each other's width; the sweep clears finished sessions and nothing else.
 
 What that cannot cover is the window itself. For the pane really closing, the layout really
 collapsing, and the bar really following a pane that is resized under it, there is an
