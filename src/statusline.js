@@ -18,6 +18,7 @@ const os = require('os');
 const path = require('path');
 const claim = require('./claim.js');
 const watchdog = require('./watchdog.js');
+const cache = require('./cache.js');
 
 /*
  * Nothing this process does is worth outliving the second it was asked for.
@@ -51,6 +52,7 @@ function sessionKey(data) {
   return 'dir-' + h.toString(36);
 }
 
+/* -> what was published, or null */
 function publish(key, data, name, info) {
   try {
     fs.mkdirSync(STATE_DIR, { recursive: true });
@@ -66,9 +68,26 @@ function publish(key, data, name, info) {
     const tmp = path.join(STATE_DIR, key + '.tmp');
     fs.writeFileSync(tmp, JSON.stringify(payload));
     fs.renameSync(tmp, path.join(STATE_DIR, key + '.json'));
+    return payload;
   } catch (_) {
     /* the display is a nicety; never let it disturb the session */
+    return null;
   }
+}
+
+/*
+ * Every session's published reading, for the account's figure.
+ *
+ * Reading every session file on the machine once a second per session is
+ * the one thing here that grows with the number of windows open, so the scan
+ * is kept for a few seconds in a cache file and shared by every status line
+ * on the machine (cache.js). This session's own reading is never taken from
+ * the cache: it was published a moment ago, and it is the one that moves.
+ */
+function sessions(key, own) {
+  const all = cache.remember('readings:' + STATE_DIR, cache.TTL_MS, () => require('./state.js').readings(STATE_DIR));
+  const others = (all || []).filter((r) => r && r.key !== key);
+  return own ? others.concat([Object.assign({ key: key }, own)]) : others;
 }
 
 /*
@@ -116,14 +135,14 @@ function run(data) {
   let info = withEta(limitInfo(data));
   const key = sessionKey(data);
 
-  publish(key, data, name, info);
+  const own = publish(key, data, name, info);
 
   if (claimed(key)) return ''; // a top-bar pane is drawing this session
 
   /* the plan limit is the account's: show the freshest reading any session
      on the machine has, not the one this session last fetched (payload.js) */
   if (!info || info.label === 'SESSION') {
-    const account = accountLimit(require('./state.js').readings(STATE_DIR));
+    const account = accountLimit(sessions(key, own));
     if (account) info = withEta(account);
   }
 
