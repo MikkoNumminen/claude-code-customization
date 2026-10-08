@@ -22,6 +22,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
+const child = require('./child.js');
 
 const CCBAR = path.join(os.homedir(), '.claude', 'ccbar');
 /* CCBAR_STATE is for the test suite, so it can never disturb a live session */
@@ -118,6 +119,7 @@ function paneAlive(token) {
 }
 
 const SWEEP_AFTER_MS = 30 * 60 * 1000; // quiet this long and the session is over
+const SPLIT_MS = 20000; // the split returns at once; this long and it is stuck
 const OURS = /^([A-Za-z0-9._-]{4,80})\.(json|claim|started|stop|width|tmp)$/;
 
 /*
@@ -187,7 +189,7 @@ function waitForFile(file, timeoutMs) {
   return false;
 }
 
-function main() {
+async function main() {
   log(
     'start: wt=' + (process.env.WT_SESSION ? 'yes' : 'no') +
     ' claudecode=' + (process.env.CLAUDECODE ? 'yes' : 'no') +
@@ -256,15 +258,23 @@ function main() {
   ];
   if (ARGS.length) psArgs.push('-Rest', ...ARGS);
 
+  /*
+   * With a deadline, and killed with its whole tree if it reaches it: the
+   * split hands the pane to the running window and returns at once, so a
+   * PowerShell still there after this long is stuck, not working - and a
+   * stuck one with no end would hold this launcher, and its console, forever.
+   */
   log('split via: powershell.exe ' + psArgs.join(' '));
-  const split = spawnSync('powershell.exe', psArgs, { encoding: 'utf8' });
+  const split = await child.run('powershell.exe', psArgs, { timeoutMs: SPLIT_MS });
   log(
     'split result: status=' + split.status +
+    (split.timedOut ? ' timed out after ' + SPLIT_MS + 'ms' : '') +
     ' error=' + (split.error ? split.error.code : 'none') +
     ' stdout=' + JSON.stringify((split.stdout || '').slice(0, 400)) +
     ' stderr=' + JSON.stringify((split.stderr || '').slice(0, 400))
   );
   if (split.error) return runPlain('could not run powershell.exe (' + split.error.code + ')');
+  if (split.timedOut) return runPlain('the split did not return in ' + SPLIT_MS / 1000 + 's');
 
   /*
    * Not split.status: wt.exe hands the command to the running window and has
@@ -279,7 +289,7 @@ function main() {
 
   /*
    * This pane is now the bar, and it draws for exactly as long as the session
-   * below lives. When that session ends, the pane it ran in closes itself, the
+   * below lives - the one child, with claude.exe, that gets no deadline. When that session ends, the pane it ran in closes itself, the
    * bar stands down, and this pane - the one the user typed `cc` in - is the
    * whole window again, back at its own prompt with its own history.
    */
@@ -291,8 +301,6 @@ function main() {
   process.exit(typeof bar.status === 'number' ? bar.status : 0);
 }
 
-try {
-  main();
-} catch (e) {
+main().catch((e) => {
   runPlain('launcher error (' + (e && e.message) + ')');
-}
+});
