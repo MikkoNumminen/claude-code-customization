@@ -327,6 +327,42 @@ there; the bottom status line centres only once something that *can* see the ter
 recorded the width (the launcher does this on every start). Until then it draws flush left,
 deliberately — a guessed centre looks broken, a left edge looks intended.
 
+## Troubleshooting: leftover node processes
+
+**Symptom.** `node.exe` processes pile up - hundreds, then more than a thousand - each about
+40 MB and each burning a core, and the machine gets slow and short of memory. Their command
+line is ccbar's `statusline.js`. One machine reached about 1,300 of them and 52 GB in a day.
+
+**Cause.** Claude Code runs the status line once a second and on every event besides, and
+when a new trigger arrives while a run is still going it cancels the one in flight and closes
+its end of the pipe. The status line's write to stdout then failed, and the handler for an
+unexpected error answered by writing to stdout again - the same closed pipe - which failed in
+turn, forever, at a full core. It happened about once a minute per session and the processes
+had no window, so nobody saw them.
+
+**Fix.** ccbar from 2026-10-09 (the commit *Leave on purpose, and never later than two
+seconds*). The status line now ends its output and exits explicitly, never writes to stdout
+from an error path, and carries a watchdog that ends the process with exit 1 at two seconds
+whatever else is going on. Install the update with `install.ps1` (or `install.sh`); the
+`statusLine` entry already in `settings.json` keeps working as it is. The installer also sets
+a new install's `refreshInterval` to 5 (see *Refresh interval* above); an existing value is
+kept, and 1 is safe again.
+
+**Check.** How many are there right now - with the fix, this stays at 0 or 1 per open
+session:
+
+```powershell
+(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object CommandLine -like '*statusline.js*').Count
+```
+
+```sh
+ps -axo pid=,etime=,args= | grep -c '[s]tatusline.js'
+```
+
+The ones already there belong to sessions that may still be open; closing a Claude Code window
+ends its children, and the orphans, whose parent has gone, can be stopped by that same command
+line match once no session is working. The test for this is `node test/leak.js`.
+
 ## License
 
 MIT
