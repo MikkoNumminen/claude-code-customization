@@ -77,6 +77,10 @@ function nap(ms) {
  * opts.confirm (default true): give a live pid the chance to refresh a stale
  * claim before answering. A bar checking whether a *different* bar holds a
  * session does not need to wait, and must not stall its own frame loop.
+ *
+ * opts.budgetMs: the most the wait may take, when the caller has a deadline
+ * of its own - the status line has a watchdog, and a wait that outlives it
+ * is answered by the watchdog instead.
  */
 function live(dir, key, opts) {
   const o = opts || {};
@@ -95,7 +99,8 @@ function live(dir, key, opts) {
 
   /* something with that pid is running: a bar would touch the file within
      the second, so wait that long for proof */
-  const until = Date.now() + CONFIRM_MS;
+  const allowed = Number.isFinite(o.budgetMs) ? Math.min(CONFIRM_MS, Math.max(0, o.budgetMs)) : CONFIRM_MS;
+  const until = Date.now() + allowed;
   while (Date.now() < until) {
     nap(POLL_MS);
     const m = mtime(p);

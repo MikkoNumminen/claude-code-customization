@@ -30,7 +30,7 @@ function run(state, feed, budgetMs) {
       p.kill();
       resolve({ ended: false, ms: budgetMs, out: out });
     }, budgetMs);
-    p.on('exit', () => {
+    p.on('close', () => {
       clearTimeout(giveUp);
       resolve({ ended: true, ms: Date.now() - t0, out: out });
     });

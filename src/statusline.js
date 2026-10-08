@@ -17,6 +17,18 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const claim = require('./claim.js');
+const watchdog = require('./watchdog.js');
+
+/*
+ * Nothing this process does is worth outliving the second it was asked for.
+ * The watchdog is armed before anything else and never unref'd: however the
+ * run goes, the process is gone inside this budget. Everything that waits
+ * below - stdin, the claim's confirmation - is cut to fit under it.
+ */
+const BUDGET_MS = 2000;
+const STARTED = Date.now();
+watchdog.arm(BUDGET_MS, 'ccbar: status line gave up after ' + BUDGET_MS + 'ms');
+const remaining = () => Math.max(0, STARTED + BUDGET_MS - 200 - Date.now());
 
 /* CCBAR_STATE is for the test suite, so it can never disturb a live session */
 const STATE_DIR = process.env.CCBAR_STATE || path.join(os.homedir(), '.claude', 'ccbar', 'state');
@@ -68,7 +80,7 @@ function publish(key, data, name, info) {
  * bottom" after every sleep.
  */
 function claimed(key) {
-  return claim.live(STATE_DIR, key);
+  return claim.live(STATE_DIR, key, { budgetMs: remaining() });
 }
 
 /*
@@ -140,11 +152,50 @@ function safeRun(data) {
   }
 }
 
+/*
+ * Leaving.
+ *
+ * The host reads stdout and shows it once the process has exited 0, so the
+ * output is ended and the exit waits for the stream to say it has gone out -
+ * not process.exit() straight after write(), which cuts a pending pipe write
+ * short. Then exit, explicitly: not "let the loop drain", which is what left
+ * processes behind.
+ *
+ * The host may also have lost interest. Claude Code cancels a run that is
+ * still going when a new trigger arrives, and closes its end of the pipe; the
+ * write then fails, and a failed write on stdout is an 'error' event that,
+ * unhandled, becomes an uncaughtException. The handler for that used to write
+ * a newline to stdout - to the same closed pipe - which failed in turn, and
+ * the process spent the rest of its life, at a full core, re-raising the
+ * error it was trying to apologise for. That was the leak. Nothing here ever
+ * writes to stdout from an error path again; an error means leave.
+ */
+let gone = false;
+function exit(code) {
+  if (gone) return;
+  gone = true;
+  process.exit(code);
+}
+
+process.stdout.on('error', () => exit(1));
 process.on('uncaughtException', () => {
   try {
-    process.stdout.write('\n');
+    process.stderr.write('ccbar: status line failed\n');
   } catch (_) {}
+  exit(1);
 });
+
+function leave(text) {
+  try {
+    process.stdin.pause();
+    process.stdin.destroy();
+  } catch (_) {}
+  try {
+    process.stdout.end(text, () => exit(0));
+  } catch (_) {
+    exit(0);
+  }
+}
 
 let raw = '';
 let done = false;
@@ -160,21 +211,16 @@ function finish() {
     data = null;
   }
   const out = safeRun(data);
-  process.stdout.write(out ? out + '\n' : '');
-  /*
-   * The line is written; let go of stdin so the process can end. Without this
-   * it keeps listening for input that will never come, and a session that goes
-   * away without closing the pipe - which is how sessions usually go - leaves
-   * one of these behind for good. They are invisible, and they accumulate.
-   *
-   * Not process.exit(): stdout is a pipe here, and a pending write would be
-   * cut off. With nothing left listening the loop drains and exits by itself.
-   */
-  try {
-    process.stdin.pause();
-    process.stdin.destroy();
-  } catch (_) {}
+  leave(out ? out + '\n' : '');
 }
+
+/*
+ * The host writes its JSON and closes the pipe, so 'end' is the normal way
+ * in. A host that does not close it gets this long, which is plenty for a
+ * payload of a few kilobytes and still leaves the claim its time to be
+ * confirmed under the watchdog.
+ */
+const STDIN_MS = 1000;
 
 try {
   process.stdin.setEncoding('utf8');
@@ -183,7 +229,7 @@ try {
   });
   process.stdin.on('end', finish);
   process.stdin.on('error', finish);
-  setTimeout(finish, 1500).unref();
+  setTimeout(finish, STDIN_MS).unref();
 } catch (_) {
   finish();
 }

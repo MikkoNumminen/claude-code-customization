@@ -33,7 +33,7 @@ function statusLine(state, key, payload) {
     const p = spawn(process.execPath, [STATUSLINE], { stdio: ['pipe', 'pipe', 'ignore'], env: env });
     let out = '';
     p.stdout.on('data', (d) => (out += d));
-    p.on('exit', () => resolve(bare(out)));
+    p.on('close', () => resolve(bare(out)));
     p.stdin.end(JSON.stringify(payload));
   });
 }

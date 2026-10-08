@@ -53,7 +53,7 @@ function statusLine(state, key) {
     const p = spawn(process.execPath, [STATUSLINE], { stdio: ['pipe', 'pipe', 'ignore'], env: env });
     let out = '';
     p.stdout.on('data', (d) => (out += d));
-    p.on('exit', () => resolve({ out: out, ms: Date.now() - t0 }));
+    p.on('close', () => resolve({ out: out, ms: Date.now() - t0 }));
     p.stdin.end(PAYLOAD);
   });
 }

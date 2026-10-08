@@ -69,7 +69,9 @@ function run(state, i, cancel) {
       result.ended = true;
       result.ms = Date.now() - t0;
       result.code = code;
-      result.out = out;
+    });
+    p.on('close', () => {
+      result.out = out; // complete only now: 'exit' can come before the last of stdout
     });
     if (cancel) {
       p.stdin.write(payload(i));
