@@ -47,4 +47,36 @@ function age(file, minutes) {
   fs.utimesSync(file, when, when);
 }
 
-module.exports = { SRC, tmpState, discard, suite, wait, age };
+
+/*
+ * The node processes whose parent is `pid`, as [{ pid, cmd }]. What a leak
+ * test counts: a status line that is still there seconds after it was asked
+ * for one line of output. Windows answers through WMI, everything else
+ * through ps; both are read-only.
+ */
+function nodeChildren(pid) {
+  const { execFileSync } = require('child_process');
+  try {
+    if (process.platform === 'win32') {
+      const script =
+        "Get-CimInstance Win32_Process -Filter \"ParentProcessId=" + pid + " and Name='node.exe'\" | " +
+        'ForEach-Object { $_.ProcessId.ToString() + "`t" + $_.CommandLine }';
+      const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 30000,
+      });
+      return out.split(/\r?\n/).filter(Boolean).map((l) => {
+        const i = l.indexOf('\t');
+        return { pid: parseInt(l.slice(0, i), 10), cmd: l.slice(i + 1) };
+      });
+    }
+    const out = execFileSync('ps', ['-axo', 'pid=,ppid=,args='], { encoding: 'utf8', timeout: 30000 });
+    return out.split('\n').map((l) => l.trim().split(/\s+/)).filter((f) => f.length >= 3 && parseInt(f[1], 10) === pid && /node/.test(f[2]))
+      .map((f) => ({ pid: parseInt(f[0], 10), cmd: f.slice(2).join(' ') }));
+  } catch (_) {
+    return [];
+  }
+}
+
+module.exports = { SRC, tmpState, discard, suite, wait, age, nodeChildren };
