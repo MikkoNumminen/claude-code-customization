@@ -1,0 +1,6 @@
+{
+  "name": "ccbar",
+  "description": "ccbar for Claude Code: the session-limit band above the prompt.",
+  "owner": { "name": "Mikko Numminen" },
+  "plugins": [{ "name": "ccbar-band", "source": "./plugins/ccbar-band" }]
+}

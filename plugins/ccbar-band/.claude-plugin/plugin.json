@@ -1,0 +1,7 @@
+{
+  "name": "ccbar-band",
+  "version": "0.1.0",
+  "description": "ccbar's figures in a band above the prompt: model, session and weekly limits, context, git branch.",
+  "author": { "name": "Mikko Numminen" },
+  "types": "./types/index.d.ts"
+}

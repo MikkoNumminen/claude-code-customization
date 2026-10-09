@@ -92,6 +92,13 @@ function saveWidth(token) {
   } catch (_) {}
 }
 
+/* Under the state directory, so a test run with CCBAR_STATE never reads the
+   real install's choice. sweepState leaves it alone: it is not shaped like a
+   session's file. */
+function topBarOff() {
+  return fs.existsSync(path.join(STATE_DIR, 'topbar.off'));
+}
+
 /* A bar refreshes its claim every second while it is drawing. */
 function barIsLive(token) {
   try {
@@ -198,6 +205,15 @@ async function main() {
     ' args=' + JSON.stringify(ARGS)
   );
   sweepState();
+  /*
+   * The installer leaves this marker when the band above the prompt is the
+   * bar: Claude Code places that band itself, so a split drawn from out here
+   * would only repeat it. `cc` then is plain `claude`, without a word.
+   */
+  if (topBarOff()) {
+    log('top bar off: the band is installed');
+    return runPlain(null, '');
+  }
   /*
    * This pane belongs to a ccbar layout AND that layout's bar is still alive
    * above it - a live bar keeps its claim warm. Splitting again would stack a
