@@ -2,3 +2,6 @@
 *.bak-*
 .DS_Store
 Thumbs.db
+
+# laid by Claude Code beside a mod it loads; regenerated, never edited
+plugins/*/.claude-plugin/types/
