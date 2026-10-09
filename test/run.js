@@ -15,7 +15,7 @@
  * Terminal window.
  */
 
-const SUITES = ['fit', 'paint', 'lifetime', 'wake', 'account', 'cache', 'statusline', 'exit', 'leak', 'width', 'sweep'];
+const SUITES = ['fit', 'paint', 'lifetime', 'wake', 'account', 'cache', 'statusline', 'exit', 'leak', 'width', 'sweep', 'band'];
 
 (async () => {
   let failed = 0;

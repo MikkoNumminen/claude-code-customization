@@ -55,7 +55,10 @@ Row 'statusLine' $statusLine
 $rows = 0
 try { $rows = [System.Console]::WindowHeight } catch { }
 $blocker = $null
+$band = Test-Path -LiteralPath (Join-Path $state 'topbar.off')
+Row 'mode' $(if ($band) { 'band above the prompt (top bar off)' } else { 'top bar / status line' })
 if (-not (Test-Path -LiteralPath (Join-Path $prefix 'launch.js'))) { $blocker = 'ccbar is not installed' }
+elseif ($band) { $blocker = 'installed as the band (install.ps1 -Mode TopBar brings the top bar back)' }
 elseif (-not $env:WT_SESSION) { $blocker = 'not running inside Windows Terminal' }
 elseif ($env:CLAUDECODE) { $blocker = 'this shell lives inside a Claude Code session' }
 elseif (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) { $blocker = 'node.exe not on PATH' }
@@ -65,7 +68,11 @@ elseif ($rows -gt 0 -and $rows -lt 16) { $blocker = "window is only $rows rows t
 Write-Host ''
 if ($blocker) {
   Write-Host "Top bar will NOT appear here: $blocker" -ForegroundColor Yellow
-  Write-Host 'The status line at the bottom still draws the same console.' -ForegroundColor DarkGray
+  if ($band) {
+    Write-Host 'Claude Code draws the band itself; `claude plugin list` should show ccbar-band@ccbar.' -ForegroundColor DarkGray
+  } else {
+    Write-Host 'The status line at the bottom still draws the same console.' -ForegroundColor DarkGray
+  }
 } else {
   Write-Host 'Everything the launcher needs is in place - `cc` should split this window.' -ForegroundColor Green
 }

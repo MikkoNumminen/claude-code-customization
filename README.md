@@ -1,13 +1,38 @@
 # ccbar
 
-A sci-fi console bar for [Claude Code](https://claude.com/claude-code): your project name
-animated at the **top** of the Windows Terminal window, with a session-limit gauge under it.
+A console bar for [Claude Code](https://claude.com/claude-code). By default it is
+**ccbar-band**, one row that Claude Code draws above the prompt:
 
-![The ccbar top pane: the project name in a drifting cool gradient above a session-limit gauge reading 74 percent with a countdown](docs/topbar.png)
+```
+Fable 5.1 │ Session 23% 17:05 │ Weekly 41% Mon 10:30 │ Context 12% │ main
+```
 
-The pane you type `cc` in becomes a three-row bar at the top of the window, and Claude Code
-opens beneath it. Where that split cannot apply, the same console is drawn as Claude Code's
-ordinary status line instead, so a session is never left without a gauge.
+The model by family and version; the five-hour session window and the weekly window, each
+with when it resets in local time (the weekly one with its day); how full the context is; and
+the git branch of the session's root. Each percentage is in the normal colour under 70, in
+the theme's warning colour from 70 and its error colour from 90. The band stays empty until
+the session has its first figures, and steps aside while a survey holds that row.
+
+The bottom status line (`src/statusline.js`) is kept as the fallback, for a Claude Code that
+cannot load the band.
+
+## The top-edge bar is retired
+
+ccbar used to draw an animated bar at the **top** of the Windows Terminal window: `cc` split
+the window and turned the pane it was typed in into a three-row bar above the session.
+
+![The retired ccbar top pane: the project name in a drifting cool gradient above a session-limit gauge reading 74 percent with a countdown](docs/topbar.png)
+
+It is off by default now, because the screen belongs to the engine. Claude Code lays out and
+repaints its own terminal; anything drawn beside it from outside is a second process guessing
+at a window it does not own. The bar had to measure widths on Claude Code's behalf, follow
+resizes when a window moved between monitors, survive sleep, stay alive exactly as long as
+its session, and never leak processes doing it — most of this README below is the record of
+that work. A band is placed by the engine: it is laid out to the width Claude Code gives it,
+so it survives a resize, a `/clear` and a Claude Code update with nothing of ccbar's running
+between turns, and it reads its figures from the session itself instead of from files.
+
+`install.ps1 -Mode TopBar` still installs it, and everything about it below still holds.
 
 ## What it looks like
 
@@ -28,8 +53,9 @@ while the session below is idle.
 ## Requirements
 
 - [Claude Code](https://claude.com/claude-code)
-- [Node.js](https://nodejs.org) (the bar and status line are dependency-free Node scripts)
-- Windows Terminal — for the top bar. Without it you still get the status line.
+- [Node.js](https://nodejs.org) (the launcher and status line are dependency-free Node scripts)
+- `git` on PATH, for the band's branch (without it the band leaves the branch out)
+- Windows Terminal — only for the retired top bar.
 
 ## Install
 
@@ -43,16 +69,47 @@ The `-ExecutionPolicy Bypass` is not a system change — it applies to that one 
 process. A default Windows install runs scripts under `Restricted`, and without it the
 installer would refuse to start.
 
-Then open a **new** Windows Terminal tab and run:
+That installs the band: the installer lays the mod and a marketplace file listing it in
+`~/.claude/ccbar`, and runs
 
 ```
-cc
+claude plugin install ccbar-band --marketplace ~/.claude/ccbar --scope user
 ```
 
-To make plain `claude` do the same thing, install with `-ShadowClaude`:
+which adds that folder as the `ccbar` marketplace and enables `ccbar-band@ccbar` under
+`enabledPlugins` in `~/.claude/settings.json`. A plugin from a folder marketplace is read from
+the folder itself, so reinstalling is the whole update; a session already open picks it up
+with `/reload-plugins`, any new session at once. Start Claude Code as you always do.
+
+Without the installer, from any Claude Code prompt:
+
+```
+/plugin install ccbar-band --marketplace MikkoNumminen/claude-code-customization
+```
+
+Answer `y` to add the marketplace and pick the user scope.
+
+To work on the mod itself, `claude --plugin-dir plugins/ccbar-band` loads it from the
+checkout for one session and reloads it on every save; `claude plugin validate
+plugins/ccbar-band` and `claude plugin test plugins/ccbar-band` check it.
+
+The other modes:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -ShadowClaude
+# the bottom status line alone
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Mode StatusLine
+# the retired top bar, with the status line as its fallback
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Mode TopBar
+```
+
+Each mode takes out what the others put in, so the figures never show twice. In the band
+and status-line modes `cc` still exists and simply starts Claude Code.
+
+With `-Mode TopBar`, open a **new** Windows Terminal tab and run `cc`. To make plain `claude`
+do the same thing, add `-ShadowClaude`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Mode TopBar -ShadowClaude
 ```
 
 That adds a `claude` shim ahead of `claude.exe` on PATH. It hands straight over to the real
@@ -70,16 +127,18 @@ session — useful after updating ccbar, or if you stopped a bar with Ctrl+C.
 ./install.sh
 ```
 
-Status line only; the top bar is a Windows Terminal pane split with no equivalent here.
+Status line only; the top bar is a Windows Terminal pane split with no equivalent here. The
+band works on every platform: install it with the `/plugin install` line above.
 
 ## What the installer touches
 
 | Path | What |
 | --- | --- |
-| `~/.claude/ccbar/` | the scripts |
+| `~/.claude/ccbar/` | the scripts, and the mod under `plugins/ccbar-band/` with the marketplace file listing it |
 | `~/.claude/ccbar/bin/` | the `cc` and `ccbar` commands (and optional `claude` shim) |
+| `~/.claude/ccbar/state/topbar.off` | the marker that keeps the launcher's top bar off (every mode but `TopBar`) |
 | user `PATH` | that bin directory, prepended — skip with `-NoPathEdit` |
-| `~/.claude/settings.json` | a `statusLine` entry, with a timestamped backup |
+| `~/.claude/settings.json` | band: `enabledPlugins` and the `ccbar` marketplace, written by `claude plugin install`; status line and top bar: a `statusLine` entry, with a timestamped backup |
 
 No execution policy is changed, no PowerShell profile is written, nothing else is modified.
 
@@ -107,8 +166,8 @@ longer outlive its second (see *Troubleshooting* below) - until you ask for anot
 powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```
 
-Removes the status line entry (only if it is ccbar's), the PATH entry and the install
-directory.
+Uninstalls `ccbar-band@ccbar` and removes the `ccbar` marketplace, removes the status line
+entry (only if it is ccbar's), the PATH entry and the install directory.
 
 ## When the bar does not appear
 
@@ -212,6 +271,23 @@ anything else belonged to a session that is over. Without it the directory only 
 is how one reached fifty files.
 
 ## Tests
+
+The band:
+
+```
+claude plugin validate plugins/ccbar-band
+claude plugin test plugins/ccbar-band
+```
+
+`plugins/ccbar-band/tests/band.test.ts` runs the mod against the engine's own test kit, on
+the terminal and desktop surfaces: the row in order with its local reset times, the colours
+at 69, 70, 89, 90 and 100 (on the rounded number, so 69.5 is a yellow 70), an empty band
+until the first measurement and one that a later empty reading never blanks, the band given
+up to a survey, and the branch read by one git process per turn, detached and outside a
+repository included. `tsc -p plugins/ccbar-band` type-checks it once Claude Code has laid its
+types in `plugins/ccbar-band/.claude-plugin/types/` (it does on a `--plugin-dir` load).
+
+Everything else:
 
 ```
 node test/run.js
